@@ -1,10 +1,16 @@
 # Visual QA Training Script
 
+A single label classifier tflite model training script customizable to suite your needs.
+
+Basically follows the instructions here:
 Viam Custom Training Script Process: https://docs.viam.com/data-ai/train/train/
 
+And uses this as example:
 Script Example: https://github.com/viam-modules/classification-tflite
 
-## Prerquisits
+## Local Development Setup
+
+### Prerequisits
 
 The libraries used are very sensitive to version changes!
 The working combination for me was:
@@ -12,31 +18,40 @@ The working combination for me was:
 - Python 3.10
 - tensorflow 2.14.1
 
-## Setup Local Environment
+### Setup Local Environment
+
+Create virtual environment:
 
 ```shell
 python3.10 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## Export Dataset Locally
+## Download Dataset Locally
+
+You can download / export a data set in the Viam platform to a local folder using the following command:
 
 ```shell
-viam dataset export --destination=./dataset --dataset-id=687fca9c04f9d21febedb2dd --include-jsonl=true
-
-viam dataset export --destination=<destination> --dataset-id=<dataset-id> --include-jsonl=true
+viam dataset export --destination=<LOCAL-FOLDER> --dataset-id=<DATASET-ID> --include-jsonl=true
 ```
 
 ## Train Locally
 
+To test the training script on your local system, use the following command:
+
 ```shell
-python3 ./model/training.py --dataset_file=./dataset/dataset.jsonl --model_type="single_label" \
-    --model_output_directory=output \
-    --labels='OK NOK'
+
+python3 ./model/training.py --dataset_file=<LOCAL-FOLDER>/dataset.jsonl --model_type="single_label" \
+    --model_output_directory=<LOCAL-FOLDER> \
+    --labels='Label1 Label2' \
+    --num_epochs=1
 ```
 
-## Submit Clout Training Job
+## Submit Cloud Training Job
+
+Use this command to trigger a training process witht a training script already uploaded to the Viam registry:
 
 ```shell
-viam train submit custom with-upload --dataset-id=<DATASET-ID> --model-org-id=<ORG-ID> --model-name=classification --model-type=<DESIRED_TYPE> --framework=tflite --path=<REPO-TAR-PATH> --script-name=classification_script --args=num_epochs=3,labels="'OK NOK'"
+viam train submit custom with-upload --dataset-id=<DATASET-ID> --model-org-id=<ORG-ID> --model-name=classification --model-type=<DESIRED_TYPE> --framework=tflite --path=<REPO-TAR-PATH> --script-name=classification_script --args=num_epochs=3,labels="'Label1 Label2'"
 ```
