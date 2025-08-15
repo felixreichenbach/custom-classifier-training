@@ -2,6 +2,8 @@
 
 Viam Custom Training Script Process: https://docs.viam.com/data-ai/train/train/
 
+Script Example: https://github.com/viam-modules/classification-tflite
+
 ## Prerquisits
 
 The libraries used are very sensitive to version changes!
@@ -31,4 +33,10 @@ viam dataset export --destination=<destination> --dataset-id=<dataset-id> --incl
 python3 ./model/training.py --dataset_file=./dataset/dataset.jsonl --model_type="single_label" \
     --model_output_directory=output \
     --labels='OK NOK'
+```
+
+## Submit Clout Training Job
+
+```shell
+viam train submit custom with-upload --dataset-id=<DATASET-ID> --model-org-id=<ORG-ID> --model-name=classification --model-type=<DESIRED_TYPE> --framework=tflite --path=<REPO-TAR-PATH> --script-name=classification_script --args=num_epochs=3,labels="'OK NOK'"
 ```
