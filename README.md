@@ -7,8 +7,8 @@ Viam Custom Training Script Process: https://docs.viam.com/data-ai/train/train/
 The libraries used are very sensitive to version changes!
 The working combination for me was:
 
-Python 3.10
-tensorflow 2.14.1
+- Python 3.10
+- tensorflow 2.14.1
 
 ## Setup Local Environment
 
