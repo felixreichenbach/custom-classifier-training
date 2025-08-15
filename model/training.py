@@ -369,7 +369,7 @@ if __name__ == "__main__":
     GLOBAL_BATCH_SIZE = BATCH_SIZE * NUM_WORKERS
 
     DATA_JSON, MODEL_DIR, num_epochs, labels, model_type = parse_args(sys.argv[1:])
-    EPOCHS = 200 if num_epochs is None or 0 else int(num_epochs)
+    EPOCHS = 50 if num_epochs is None or 0 else int(num_epochs)
     if EPOCHS < 0:
         raise ValueError("Invalid number of epochs, must be a positive nonzero number")
 
