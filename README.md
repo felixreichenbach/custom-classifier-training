@@ -43,7 +43,7 @@ To test the training script on your local system, use the following command:
 ```shell
 
 python3 ./model/training.py --dataset_file=<LOCAL-FOLDER>/dataset.jsonl --model_type="single_label" \
-    --model_output_directory=output \
+    --model_output_directory=<LOCAL-FOLDER> \
     --labels='Label1 Label2' \
     --num_epochs=1
 ```
