@@ -55,3 +55,18 @@ Use this command to trigger a training process witht a training script already u
 ```shell
 viam train submit custom with-upload --dataset-id=<DATASET-ID> --model-org-id=<ORG-ID> --model-name=classification --model-type=<DESIRED_TYPE> --framework=tflite --path=<REPO-TAR-PATH> --script-name=classification_script --args=num_epochs=3,labels="'Label1 Label2'"
 ```
+
+## Enable Github Actions
+
+The repository contains two Github workflows, `pull_request.yaml` which will test your current script and `main.yaml` which will deploy the script into the Viam registry.
+
+Both scripts require Github secrects as follows. You can add them via your repository -> settings -> secrets and variables.
+
+```
+VIAM_API_KEY_ID: < YOUR API KEY ID >
+VIAM_API_KEY: < YOUR API KEY >
+VIAM_ORG_ID: < YOUR ORGANIZATION ID >
+
+# pull_request.yaml additionally requires a test data set
+VIAM_DATASET_ID: < YOUR TEST DATASET ID >
+```
