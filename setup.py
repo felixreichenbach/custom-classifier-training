@@ -1,12 +1,16 @@
 from setuptools import find_packages, setup
 
 setup(
-    name="model",
+    name="trainer",
     version="0.1",
     packages=find_packages(),
-    include_package_data=True,
     install_requires=[
-        "tensorflow==2.14.1",
+        "google-cloud-aiplatform",
+        "google-cloud-storage",
+        "keras==2.13.1rc0",
+        "keras-cv==0.6.4",
+        "Keras-Preprocessing==1.1.2",
         "tflite-support",
     ],
+    include_package_data=True,
 )
