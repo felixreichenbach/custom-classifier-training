@@ -4,7 +4,7 @@ import model.training
 def test_parse_args():
     args = [
         "--dataset_file=test_data.json",
-        "--model_output_directory=test_output/",
+        "--model_dir=test_output/",
         "--num_epochs=5",
         "--labels='label_1 label_2'",
         "--model_type=multi_label",
