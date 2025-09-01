@@ -270,7 +270,7 @@ def build_and_compile_classification(
     preprocessing = preprocessing_layers_classification(input_shape[:-1])
     data_augmentation = tf.keras.Sequential(
         [
-            #tf.keras.layers.RandomFlip(),
+            # tf.keras.layers.RandomFlip(),
             tf.keras.layers.RandomRotation(0.1),
             tf.keras.layers.RandomZoom(0.1),
         ]

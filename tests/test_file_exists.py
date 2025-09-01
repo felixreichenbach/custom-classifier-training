@@ -21,9 +21,7 @@ def test_parse_args():
         model_dir == "test_output/"
     ), f"Expected model_output_directory to be 'test_output/', got {model_dir}"
     assert num_epochs == 5, f"Expected num_epochs to be 5, got {num_epochs}"
-    assert (
-        labels == "'OK NOK'"
-    ), f"Expected labels to be 'OK NOK', got {labels}"
+    assert labels == "'OK NOK'", f"Expected labels to be 'OK NOK', got {labels}"
     assert (
         model_type == "single_label"
     ), f"Expected model_type to be single_label, got {model_type}"
