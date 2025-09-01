@@ -1,0 +1,3 @@
+{"image_path":"dataset_test/data/2025-07-22T17_09_15Z_20250630_175037.jpg","classification_annotations":[{"annotation_label":"OK"},{"annotation_label":"Volano"}],"bounding_box_annotations":[]}
+{"image_path":"dataset_test/data/2025-07-22T17_09_16.605Z_20250630_174842.jpg","classification_annotations":[{"annotation_label":"OK"},{"annotation_label":"Volano"}],"bounding_box_annotations":[]}
+{"image_path":"dataset_test/data/2025-07-22T17_09_18.033Z_20250630_174711.jpg","classification_annotations":[{"annotation_label":"OK"},{"annotation_label":"Volano"}],"bounding_box_annotations":[]}
