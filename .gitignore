@@ -5,3 +5,4 @@ dataset/
 __pycache__/
 NOTES.md
 validation/dataset/
+.DS_Store
