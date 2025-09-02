@@ -6,11 +6,6 @@ setup(
     packages=find_packages(),
     include_package_data=True,
     install_requires=[
-        "google-cloud-aiplatform",
-        "google-cloud-storage",
-        "keras==2.13.1rc0",
-        "keras-cv==0.6.4",
-        "Keras-Preprocessing==1.1.2",
         "tflite-support",
     ],
 )
