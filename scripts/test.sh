@@ -1,4 +1,7 @@
 #!/bin/sh
+# TODO: Required when TFLite-Support is used
+#apt-get update
+#apt-get install libusb-1.0-0
 
 python3 setup.py sdist --formats=gztar
 pip install dist/model-0.1.tar.gz

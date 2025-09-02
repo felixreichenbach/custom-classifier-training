@@ -4,20 +4,37 @@ import os
 import sys
 import typing as ty
 import tensorflow as tf
-from keras import Model
+from keras import Model, callbacks
 import numpy as np
+
+# from tflite_support.metadata_writers import image_classifier
+# from tflite_support.metadata_writers import writer_utils
 
 
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
 labels_filename = "labels.txt"
 unknown_label = "UNKNOWN"
+metrics_filename = "model_metrics.json"
 
 
 TFLITE_OPS = [
     tf.lite.OpsSet.TFLITE_BUILTINS,  # enable TensorFlow Lite ops.
     tf.lite.OpsSet.SELECT_TF_OPS,  # enable TensorFlow ops.
 ]
+
+ROUNDING_DIGITS = 5
+
+# Normalization parameters are required when reprocessing the image.
+_INPUT_NORM_MEAN = 127.5
+_INPUT_NORM_STD = 127.5
+
+early_stopping_key = "early_stopping"
+reduce_lr_on_plateau_key = "reduce_lr_on_plateau"
+early_stopping_monitor_val = {
+    single_label: "categorical_accuracy",
+    multi_label: "binary_accuracy",
+}
 
 
 def parse_args(args):
@@ -339,14 +356,104 @@ def save_tflite_classification(
     input = tf.keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
     output = model(input, training=False)
     wrapped_model = tf.keras.Model(inputs=input, outputs=output)
+
+    ## Working without TFLite-Support
     converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
     converter.target_spec.supported_ops = TFLITE_OPS
     tflite_model = converter.convert()
-
     filename = os.path.join(model_dir, f"{model_name}.tflite")
     # Writing the model buffer into a file.
     with open(filename, "wb") as f:
         f.write(tflite_model)
+
+    # TODO: TFLite-Support has compatibility issues
+    # if False:  # is_tensorflow:
+    #    # Save the model to GCS
+    #    tf.saved_model.save(wrapped_model, model_dir)
+    # else:
+    #    converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
+    #    converter.target_spec.supported_ops = TFLITE_OPS
+    #    tflite_model = converter.convert()
+    #
+    #    ImageClassifierWriter = image_classifier.MetadataWriter
+    #    # Task Library expects label files that are in the same format as the one below.
+    #    labels_file = os.path.join(model_dir, labels_filename)
+    #
+    #    # Create the metadata writer.
+    #    writer = ImageClassifierWriter.create_for_inference(
+    #        tflite_model, [_INPUT_NORM_MEAN], [_INPUT_NORM_STD], [labels_file]
+    #    )
+    #
+    #    filename = os.path.join(model_dir, f"{model_name}.tflite")
+    #    # Populate the metadata into the model.
+    #    # Save the model to GCS
+    #    writer_utils.save_file(writer.populate(), filename)
+
+
+def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
+    if np.isnan(val) or np.isinf(val):
+        return -1
+    else:
+        return float(round(val, rounding_digits))
+
+
+def save_model_metrics_classification(
+    loss_history: callbacks.History,
+    monitored_val: ty.List[str],
+    model_dir: str,
+    model: Model,
+    test_dataset: tf.data.Dataset,
+) -> None:
+    test_images = np.array([x for x, _ in test_dataset])
+    test_labels = np.array([y for _, y in test_dataset])
+
+    test_metrics = model.evaluate(test_images, test_labels)
+
+    metrics = {}
+    # Since there could be potentially many occurences of the maximum value being monitored,
+    # we reverse the list storing the tracked values and take the last occurence.
+    monitored_metric_max_idx = len(monitored_val) - np.argmax(monitored_val[::-1]) - 1
+    for i, key in enumerate(model.metrics_names):
+        metrics["train_" + key] = get_rounded_number(
+            loss_history.history[key][monitored_metric_max_idx], ROUNDING_DIGITS
+        )
+        metrics["test_" + key] = get_rounded_number(test_metrics[i], ROUNDING_DIGITS)
+
+    # Save the loss and test metrics as model metrics
+    filename = os.path.join(model_dir, metrics_filename)
+    with open(filename, "w") as f:
+        json.dump(metrics, f, ensure_ascii=False)
+
+
+def get_callbacks(model_type: str):
+    # Single-label Classification or Multi-label Classification
+    if model_type == single_label or model_type == multi_label:
+        callbackEarlyStopping = tf.keras.callbacks.EarlyStopping(
+            # Stop training when `monitor` value is no longer improving
+            monitor=early_stopping_monitor_val[model_type],
+            # "no longer improving" being defined as "no better than 'min_delta' less"
+            min_delta=1e-3,
+            # "no longer improving" being further defined as "for at least 'patience' epochs"
+            patience=5,
+            # Restore weights from the best performing model, requires keeping track of model weights and performance.
+            restore_best_weights=True,
+        )
+        callbackReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau(
+            # Reduce learning rate when `loss` is no longer improving
+            monitor="loss",
+            # "no longer improving" being defined as "no better than 'min_delta' less"
+            min_delta=1e-3,
+            # "no longer improving" being further defined as "for at least 'patience' epochs"
+            patience=5,
+            # Default lower bound on learning rate
+            min_lr=0,
+        )
+    else:
+        raise ValueError("Invalid model_type: must be single_label or multi_label")
+    return {
+        early_stopping_key: callbackEarlyStopping,
+        reduce_lr_on_plateau_key: callbackReduceLROnPlateau,
+    }
 
 
 if __name__ == "__main__":
@@ -416,10 +523,29 @@ if __name__ == "__main__":
             LABELS + [unknown_label], model_type, IMG_SIZE + (3,)
         )
 
+    # Get callbacks for training classification
+    callbacks = get_callbacks(model_type=model_type)
+
     # Train model on data
     loss_history = model.fit(
         x=train_dataset,
         epochs=EPOCHS,
+        callbacks=callbacks.values(),
+    )
+
+    # Get the values of what is being monitored in the early stopping policy,
+    # since this is what is used to restore best weights for the resulting model.
+    monitored_val = callbacks[early_stopping_key].get_monitor_value(
+        loss_history.history
+    )
+
+    # Save trained model metrics to JSON file
+    save_model_metrics_classification(
+        loss_history,
+        monitored_val,
+        MODEL_DIR,
+        model,
+        test_dataset,
     )
 
     # Save labels.txt file
