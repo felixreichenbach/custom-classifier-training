@@ -28,6 +28,13 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+If you are on a newwer Mac with Apple silicon, pip won't be able to install the `tflite-support` wheel.
+For local development you can therefore install the wheel package included in the repo:
+
+```shell
+pip install tflite_support-0.4.4-cp310-cp310-macosx_15_0_arm64.whl
+```
+
 ## Download Dataset Locally
 
 You can download / export a data set in the Viam platform to a local folder using the following command:
