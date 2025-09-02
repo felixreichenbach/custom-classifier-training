@@ -1,5 +1,7 @@
 .env
+.venv/
 venv/
 dataset/
 __pycache__/
 NOTES.md
+validation/dataset/
