@@ -7,6 +7,9 @@ import tensorflow as tf
 from keras import Model
 import numpy as np
 
+from tflite_support.metadata_writers import image_classifier
+from tflite_support.metadata_writers import writer_utils
+
 
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
@@ -18,6 +21,10 @@ TFLITE_OPS = [
     tf.lite.OpsSet.TFLITE_BUILTINS,  # enable TensorFlow Lite ops.
     tf.lite.OpsSet.SELECT_TF_OPS,  # enable TensorFlow ops.
 ]
+
+# Normalization parameters are required when reprocessing the image.
+_INPUT_NORM_MEAN = 127.5
+_INPUT_NORM_STD = 127.5
 
 
 def parse_args(args):
@@ -339,14 +346,38 @@ def save_tflite_classification(
     input = tf.keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
     output = model(input, training=False)
     wrapped_model = tf.keras.Model(inputs=input, outputs=output)
-    converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
-    converter.target_spec.supported_ops = TFLITE_OPS
-    tflite_model = converter.convert()
 
-    filename = os.path.join(model_dir, f"{model_name}.tflite")
-    # Writing the model buffer into a file.
-    with open(filename, "wb") as f:
-        f.write(tflite_model)
+    ## Working without TFLite-Support
+    # converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
+    # converter.target_spec.supported_ops = TFLITE_OPS
+    # tflite_model = converter.convert()
+    #
+    # filename = os.path.join(model_dir, f"{model_name}.tflite")
+    ## Writing the model buffer into a file.
+    # with open(filename, "wb") as f:
+    #    f.write(tflite_model)
+
+    if False:  # is_tensorflow:
+        # Save the model to GCS
+        tf.saved_model.save(wrapped_model, model_dir)
+    else:
+        converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
+        converter.target_spec.supported_ops = TFLITE_OPS
+        tflite_model = converter.convert()
+
+        ImageClassifierWriter = image_classifier.MetadataWriter
+        # Task Library expects label files that are in the same format as the one below.
+        labels_file = os.path.join(model_dir, labels_filename)
+
+        # Create the metadata writer.
+        writer = ImageClassifierWriter.create_for_inference(
+            tflite_model, [_INPUT_NORM_MEAN], [_INPUT_NORM_STD], [labels_file]
+        )
+
+        filename = os.path.join(model_dir, f"{model_name}.tflite")
+        # Populate the metadata into the model.
+        # Save the model to GCS
+        writer_utils.save_file(writer.populate(), filename)
 
 
 if __name__ == "__main__":
