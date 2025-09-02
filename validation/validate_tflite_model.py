@@ -19,7 +19,7 @@ def load_tflite_model(model_path):
 def run_inference(
     interpreter: tf.lite.Interpreter, input_details, output_details, img_array
 ):
-    img_array = img_array.astype(np.uint8)
+    # img_array = img_array.astype(np.uint8)
     interpreter.set_tensor(input_details[0]["index"], img_array)
     interpreter.invoke()
     output_data = interpreter.get_tensor(output_details[0]["index"])
@@ -60,7 +60,7 @@ def preprocess_image(image_path, input_shape):
     # plt.imshow(img)
     # plt.axis("off")
     # plt.show()
-    img_array = np.array(img, dtype=np.float32)
+    img_array = np.array(img, dtype=np.uint8)
     # Normalize if needed (0-1)
     # if np.max(img_array) > 1.0:
     #    img_array /= 255.0
