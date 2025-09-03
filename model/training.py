@@ -6,6 +6,7 @@ import typing as ty
 import tensorflow as tf
 from keras import Model, callbacks
 import numpy as np
+import shutil
 
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
@@ -91,6 +92,12 @@ def parse_filenames_and_labels_from_json(
                         labels = [annotation["annotation_label"]]
             image_labels.append(labels)
     return image_filenames, image_labels
+
+
+def save_jsonl(model_dir: str, filename: str) -> None:
+    """Copies the JSONLines file to the specified model directory."""
+    dest = os.path.join(model_dir, "parsed_json_lines.jsonl")
+    shutil.copyfile(filename, dest)
 
 
 def get_neural_network_params(
@@ -527,3 +534,5 @@ if __name__ == "__main__":
     save_tflite_classification(
         model, MODEL_DIR, "classification_model", IMG_SIZE + (3,)
     )
+
+    save_jsonl(MODEL_DIR, DATA_JSON)
