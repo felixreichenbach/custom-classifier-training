@@ -7,10 +7,6 @@ import tensorflow as tf
 from keras import Model, callbacks
 import numpy as np
 
-# from tflite_support.metadata_writers import image_classifier
-# from tflite_support.metadata_writers import writer_utils
-
-
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
 labels_filename = "labels.txt"
@@ -365,29 +361,6 @@ def save_tflite_classification(
     # Writing the model buffer into a file.
     with open(filename, "wb") as f:
         f.write(tflite_model)
-
-    # TODO: TFLite-Support has compatibility issues
-    # if False:  # is_tensorflow:
-    #    # Save the model to GCS
-    #    tf.saved_model.save(wrapped_model, model_dir)
-    # else:
-    #    converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
-    #    converter.target_spec.supported_ops = TFLITE_OPS
-    #    tflite_model = converter.convert()
-    #
-    #    ImageClassifierWriter = image_classifier.MetadataWriter
-    #    # Task Library expects label files that are in the same format as the one below.
-    #    labels_file = os.path.join(model_dir, labels_filename)
-    #
-    #    # Create the metadata writer.
-    #    writer = ImageClassifierWriter.create_for_inference(
-    #        tflite_model, [_INPUT_NORM_MEAN], [_INPUT_NORM_STD], [labels_file]
-    #    )
-    #
-    #    filename = os.path.join(model_dir, f"{model_name}.tflite")
-    #    # Populate the metadata into the model.
-    #    # Save the model to GCS
-    #    writer_utils.save_file(writer.populate(), filename)
 
 
 def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
