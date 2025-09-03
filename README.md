@@ -28,13 +28,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-If you are on a newwer Mac with Apple silicon, pip won't be able to install the `tflite-support` wheel.
-For local development you can therefore install the wheel package included in the repo:
-
-```shell
-pip install tflite_support-0.4.4-cp310-cp310-macosx_15_0_arm64.whl
-```
-
 ## Download Dataset Locally
 
 You can download / export a data set in the Viam platform to a local folder using the following command:
@@ -48,8 +41,9 @@ viam dataset export --destination=<LOCAL-FOLDER> --dataset-id=<DATASET-ID> --inc
 To test the training script on your local system, use the following command:
 
 ```shell
-
-python3 ./model/training.py --dataset_file=<LOCAL-FOLDER>/dataset.jsonl --model_type="single_label" \
+python3 ./model/training.py \
+    --dataset_file=<LOCAL-FOLDER>/dataset.jsonl \
+    --model_type="single_label" \
     --model_output_directory=<LOCAL-FOLDER> \
     --labels='Label1 Label2' \
     --num_epochs=1
@@ -60,7 +54,15 @@ python3 ./model/training.py --dataset_file=<LOCAL-FOLDER>/dataset.jsonl --model_
 Use this command to trigger a training process witht a training script already uploaded to the Viam registry:
 
 ```shell
-viam train submit custom with-upload --dataset-id=<DATASET-ID> --model-org-id=<ORG-ID> --model-name=classification --model-type=<DESIRED_TYPE> --framework=tflite --path=<REPO-TAR-PATH> --script-name=classification_script --args=num_epochs=3,labels="'Label1 Label2'"
+viam train submit custom with-upload \
+    --dataset-id=<DATASET-ID> \
+    --model-org-id=<ORG-ID> \
+    --model-name=classification \
+    --model-type=<DESIRED_TYPE> \
+    --framework=tflite \
+    --path=<REPO-TAR-PATH> \
+    --script-name=classification_script \
+    --args=num_epochs=3,labels="'Label1 Label2'"
 ```
 
 ## Enable Github Actions
