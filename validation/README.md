@@ -32,3 +32,9 @@ python center_crop_4_3.py
 ```shell
 python upload_cropped_images.py
 ```
+
+## Validate Model Locally
+
+```shell
+python validation/validate_tflite_model.py --model=validation/model/model.tflite --dataset=validation/dataset/ --output=result.json
+```
