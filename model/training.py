@@ -181,9 +181,9 @@ def parse_image_and_encode_labels(
         model_type: string single_label or multi_label
         img_size: optional 2D shape of image
     """
-    image_string = tf.io.read_file(filename)
+    image_bytes = tf.io.read_file(filename)
     image_decoded = tf.image.decode_image(
-        image_string,
+        image_bytes,
         channels=3,
         expand_animations=False,
         dtype=tf.dtypes.uint8,
