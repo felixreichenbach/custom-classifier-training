@@ -8,6 +8,85 @@ import matplotlib.pyplot as plt
 import argparse
 
 
+# WARNING: Labels are incomplete probably due to different image upload methods!
+def load_dataset_jsonl_labels(dataset_path):
+    label_map = {}
+    jsonl_path = os.path.join(dataset_path, "dataset.jsonl")
+    with open(jsonl_path, "r") as jf:
+        for line in jf:
+            entry = json.loads(line)
+            img_path = entry.get("image_path", "")
+            fname = os.path.basename(img_path)
+            annots = entry.get("classification_annotations", [])
+            label_map[fname] = []
+            for annot in annots:
+                label = annot.get("annotation_label", None)
+                label_map[fname].append(label)
+    print(label_map)
+    return label_map
+
+
+def load_all_metadata_jsons(dataset_path):
+    metadata_dir = os.path.join(dataset_path, "metadata")
+    metadata = {}
+    if not os.path.isdir(metadata_dir):
+        print(f"No metadata directory found at {metadata_dir}")
+        return metadata
+    for fname in os.listdir(metadata_dir):
+        if fname.endswith(".json"):
+            fname_short = fname.replace(".jpg.json", "").replace(".json", "")
+            fpath = os.path.join(metadata_dir, fname)
+            with open(fpath, "r") as mf:
+                metadata[fname_short] = json.load(mf)
+    return metadata
+
+
+# INFO: the metadata files seems to have the complete tags list under the "annotations" key
+def extract_labels_map(metadata):
+    labels_map = {}
+    for fname, value in metadata.items():
+        annotations = value.get("annotations", {})
+        classifications = annotations.get("classifications", [])
+        labels_map[fname] = []
+        for classification in classifications:
+            label = classification.get("label", None)
+            if label is not None:
+                labels_map[fname].append(label)
+    return labels_map
+
+
+def compute_confusion_matrix(result, dataset, labels):
+    # Compute confusion matrix using true labels from dataset.jsonl
+    gt_map = extract_labels_map(load_all_metadata_jsons(dataset))
+    y_true = []
+    y_pred = []
+    for item in result:
+        fname = item["filename"]
+        fname_short = fname.replace(".jpg", "")
+        true_labels = gt_map.get(fname_short, None)
+        # Keep only labels that exist in both true_labels and labels
+        true_label = (
+            [lbl for lbl in true_labels if lbl in labels] if true_labels else []
+        )
+        if true_label:
+            # Replace true_label value with its index in labels.txt
+            true_label_idx = (
+                labels.index(true_label[0]) if true_label[0] in labels else None
+            )
+            if true_label_idx is not None:
+                y_true.append(true_label_idx)
+                y_pred.append(item["predicted_class"])
+            else:
+                print(
+                    f"Warning: True label '{true_label[0]}' for file '{fname}' not found in labels.txt, skipping."
+                )
+    cm = confusion_matrix(y_true, y_pred, labels=list(range(len(labels))))
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
+    disp.plot(cmap=plt.cm.Blues)
+    plt.title("Confusion Matrix")
+    plt.show()
+
+
 def load_tflite_model(model_path):
     interpreter = tf.lite.Interpreter(model_path=model_path)
     interpreter.allocate_tensors()
@@ -110,6 +189,9 @@ def validate_model(model_path, dataset, output_json):
     with open(output_json, "w") as f:
         json.dump(result, f, indent=2)
     print(f"Results saved to {output_json}")
+
+    # Compute and display confusion matrix
+    compute_confusion_matrix(result, dataset, labels)
 
 
 if __name__ == "__main__":
