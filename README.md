@@ -2,11 +2,11 @@
 
 A single label classifier tflite model training script customizable to suite your needs.
 
-Basically follows the instructions here:
-Viam Custom Training Script Process: https://docs.viam.com/data-ai/train/train/
+Viam ML training documentation:
 
-And uses this as example:
-Script Example: https://github.com/viam-modules/classification-tflite
+Viam Custom Training Script Process: [ML Training](https://docs.viam.com/data-ai/train/train/)
+
+Viam custom ML classification training example: [classification-tflite](https://github.com/viam-modules/classification-tflite)
 
 ## Local Development Setup
 
