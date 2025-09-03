@@ -545,8 +545,6 @@ if __name__ == "__main__":
     # Save labels.txt file
     save_labels(LABELS + [unknown_label], MODEL_DIR)
     # Convert the model to tflite
-    save_tflite_classification(
-        model, MODEL_DIR, "classification_model", IMG_SIZE + (3,)
-    )
+    save_tflite_classification(model, MODEL_DIR, "model", IMG_SIZE + (3,))
 
     save_jsonl(MODEL_DIR, DATA_JSON)
