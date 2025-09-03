@@ -48,7 +48,7 @@ def load_images(image_dir):
 
 
 def preprocess_image(image_path, input_shape):
-    img = Image.open(image_path)  # .convert("RGB")
+    img = Image.open(image_path).convert("RGB")
     exif = img.getexif()
     if exif:
         for tag, value in exif.items():
@@ -57,13 +57,17 @@ def preprocess_image(image_path, input_shape):
     else:
         print("No EXIF orientation found.")
     img = img.resize((input_shape[1], input_shape[2]))
+    # Activate to visually check images after preprocessing
     # plt.imshow(img)
     # plt.axis("off")
     # plt.show()
-    img_array = np.array(img, dtype=np.uint8)
-    # Normalize if needed (0-1)
-    # if np.max(img_array) > 1.0:
-    #    img_array /= 255.0
+    img_array = np.array(img)
+    if np.any(img_array < 0) or np.any(img_array > 255):
+        raise ValueError("Image pixel values are out of uint8 range (0-255).")
+    img_array = img_array.astype(np.uint8)
+    # If img_array originally has shape (height, width, channels), after this operation, its shape becomes (1, height, width, channels).
+    # Many machine learning models (especially TensorFlow Lite models) expect input data to have a batch dimension, even if you’re only passing one image.
+    # Adding this dimension makes the array compatible with model input requirements.
     img_array = np.expand_dims(img_array, axis=0)
     return img_array
 
