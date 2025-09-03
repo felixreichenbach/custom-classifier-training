@@ -6,10 +6,7 @@ import typing as ty
 import tensorflow as tf
 from keras import Model, callbacks
 import numpy as np
-
-# from tflite_support.metadata_writers import image_classifier
-# from tflite_support.metadata_writers import writer_utils
-
+import shutil
 
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
@@ -97,6 +94,12 @@ def parse_filenames_and_labels_from_json(
     return image_filenames, image_labels
 
 
+def save_jsonl(model_dir: str, filename: str) -> None:
+    """Copies the JSONLines file to the specified model directory."""
+    dest = os.path.join(model_dir, "parsed_json_lines.jsonl")
+    shutil.copyfile(filename, dest)
+
+
 def get_neural_network_params(
     num_classes: int, model_type: str
 ) -> ty.Tuple[str, str, str, str]:
@@ -181,9 +184,9 @@ def parse_image_and_encode_labels(
         model_type: string single_label or multi_label
         img_size: optional 2D shape of image
     """
-    image_string = tf.io.read_file(filename)
+    image_bytes = tf.io.read_file(filename)
     image_decoded = tf.image.decode_image(
-        image_string,
+        image_bytes,
         channels=3,
         expand_animations=False,
         dtype=tf.dtypes.uint8,
@@ -366,29 +369,6 @@ def save_tflite_classification(
     with open(filename, "wb") as f:
         f.write(tflite_model)
 
-    # TODO: TFLite-Support has compatibility issues
-    # if False:  # is_tensorflow:
-    #    # Save the model to GCS
-    #    tf.saved_model.save(wrapped_model, model_dir)
-    # else:
-    #    converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
-    #    converter.target_spec.supported_ops = TFLITE_OPS
-    #    tflite_model = converter.convert()
-    #
-    #    ImageClassifierWriter = image_classifier.MetadataWriter
-    #    # Task Library expects label files that are in the same format as the one below.
-    #    labels_file = os.path.join(model_dir, labels_filename)
-    #
-    #    # Create the metadata writer.
-    #    writer = ImageClassifierWriter.create_for_inference(
-    #        tflite_model, [_INPUT_NORM_MEAN], [_INPUT_NORM_STD], [labels_file]
-    #    )
-    #
-    #    filename = os.path.join(model_dir, f"{model_name}.tflite")
-    #    # Populate the metadata into the model.
-    #    # Save the model to GCS
-    #    writer_utils.save_file(writer.populate(), filename)
-
 
 def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
     if np.isnan(val) or np.isinf(val):
@@ -554,3 +534,5 @@ if __name__ == "__main__":
     save_tflite_classification(
         model, MODEL_DIR, "classification_model", IMG_SIZE + (3,)
     )
+
+    save_jsonl(MODEL_DIR, DATA_JSON)

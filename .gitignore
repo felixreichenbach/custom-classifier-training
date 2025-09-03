@@ -5,3 +5,8 @@ dataset/
 __pycache__/
 NOTES.md
 validation/dataset/
+.DS_Store
+
+validation/model/*
+!validation/model/
+!validation/model/.gitkeep
