@@ -100,18 +100,12 @@ def load_images(image_dir):
         for f in os.listdir(image_dir)
         if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".gif"))
     ]
+    print(f"Found {len(images_files)} images.")
     return images_files
 
 
 def preprocess_image(image_path, input_shape):
     img = Image.open(image_path).convert("RGB")
-    exif = img.getexif()
-    if exif:
-        for tag, value in exif.items():
-            if ExifTags.TAGS.get(tag) == "Orientation":
-                print(f"Image orientation: {value}")
-    else:
-        print("No EXIF orientation found.")
     img = img.resize((input_shape[1], input_shape[2]))
     # Activate to visually check images after preprocessing
     # plt.imshow(img)

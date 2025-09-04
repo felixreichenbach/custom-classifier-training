@@ -1,13 +1,26 @@
 import os
 import random
 import shutil
+import argparse
 
-src_dir = "./dataset_orig/data"
-metadata_src = "./dataset_cropped_1_1/metadata"
-jsonl_src = "./dataset_cropped_1_1/dataset.jsonl"
+parser = argparse.ArgumentParser(description="Split dataset into train and test sets.")
+parser.add_argument(
+    "--dataset",
+    type=str,
+    required=True,
+    help="Path to the dataset directory",
+)
+args = parser.parse_args()
+
+src_dir = os.path.join(args.dataset, "data")
+jsonl_src = os.path.join(args.dataset, "dataset.jsonl")
+
+
+# src_dir = "./dataset_cropped_1_1/data"
+# jsonl_src = "./dataset_cropped_1_1/dataset.jsonl"
 train_dir = "./dataset_train"
 test_dir = "./dataset_test"
-split_ratio = 0.9
+split_ratio = 0.8
 
 os.makedirs(train_dir, exist_ok=True)
 os.makedirs(test_dir, exist_ok=True)
@@ -34,9 +47,6 @@ for fname in test_files:
 
 # Copy metadata folder and jsonl file to both train and test folders
 for target_dir in [train_dir, test_dir]:
-    shutil.copytree(
-        metadata_src, os.path.join(target_dir, "metadata"), dirs_exist_ok=True
-    )
     shutil.copy(jsonl_src, os.path.join(target_dir, "dataset.jsonl"))
 
 print(f"Train images: {len(train_files)}, Test images: {len(test_files)}")
