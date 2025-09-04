@@ -22,48 +22,19 @@ def load_dataset_jsonl_labels(dataset_path):
             for annot in annots:
                 label = annot.get("annotation_label", None)
                 label_map[fname].append(label)
-    print(label_map)
     return label_map
 
 
-def load_all_metadata_jsons(dataset_path):
-    metadata_dir = os.path.join(dataset_path, "metadata")
-    metadata = {}
-    if not os.path.isdir(metadata_dir):
-        print(f"No metadata directory found at {metadata_dir}")
-        return metadata
-    for fname in os.listdir(metadata_dir):
-        if fname.endswith(".json"):
-            fname_short = fname.replace(".jpg.json", "").replace(".json", "")
-            fpath = os.path.join(metadata_dir, fname)
-            with open(fpath, "r") as mf:
-                metadata[fname_short] = json.load(mf)
-    return metadata
-
-
-# INFO: the metadata files seems to have the complete tags list under the "annotations" key
-def extract_labels_map(metadata):
-    labels_map = {}
-    for fname, value in metadata.items():
-        annotations = value.get("annotations", {})
-        classifications = annotations.get("classifications", [])
-        labels_map[fname] = []
-        for classification in classifications:
-            label = classification.get("label", None)
-            if label is not None:
-                labels_map[fname].append(label)
-    return labels_map
-
-
 def compute_confusion_matrix(result, dataset, labels):
-    # Compute confusion matrix using true labels from dataset.jsonl
-    gt_map = extract_labels_map(load_all_metadata_jsons(dataset))
+    gt_map = load_dataset_jsonl_labels(dataset)
     y_true = []
     y_pred = []
     for item in result:
         fname = item["filename"]
-        fname_short = fname.replace(".jpg", "")
-        true_labels = gt_map.get(fname_short, None)
+        # fname_short = fname.replace(".jpg", "")
+        true_labels = gt_map.get(fname, None)
+        if true_labels is None:
+            print(f"No true labels found for {fname}, skipping.")
         # Keep only labels that exist in both true_labels and labels
         true_label = (
             [lbl for lbl in true_labels if lbl in labels] if true_labels else []
@@ -73,9 +44,15 @@ def compute_confusion_matrix(result, dataset, labels):
             true_label_idx = (
                 labels.index(true_label[0]) if true_label[0] in labels else None
             )
+            pred_label = item.get("label")
+            pred_label_idx = (
+                labels.index(pred_label)
+                if pred_label in labels
+                else item["predicted_class"]
+            )
             if true_label_idx is not None:
                 y_true.append(true_label_idx)
-                y_pred.append(item["predicted_class"])
+                y_pred.append(pred_label_idx)
             else:
                 print(
                     f"Warning: True label '{true_label[0]}' for file '{fname}' not found in labels.txt, skipping."
@@ -158,7 +135,7 @@ def validate_model(model_path, dataset, output_json):
     interpreter, input_details, output_details = load_tflite_model(model_path)
     input_shape = input_details[0]["shape"]
 
-    image_dir = os.path.join(dataset, "data_cropped_4_3")
+    image_dir = os.path.join(dataset, "data")
     image_files = load_images(image_dir)
 
     # Load labels from model/labels.txt
