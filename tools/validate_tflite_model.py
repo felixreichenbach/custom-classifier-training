@@ -6,6 +6,7 @@ from PIL import Image, ExifTags
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 import matplotlib.pyplot as plt
 import argparse
+import shutil
 
 
 # WARNING: Labels are incomplete probably due to different image upload methods!
@@ -23,6 +24,19 @@ def load_dataset_jsonl_labels(dataset_path):
                 label = annot.get("annotation_label", None)
                 label_map[fname].append(label)
     return label_map
+
+
+def copy_image(fname, dataset, suffix):
+    # Copy misclassified image to 'misclassification' folder
+    misclass_dir = os.path.join(dataset, "miss_" + suffix)
+    os.makedirs(misclass_dir, exist_ok=True)
+    src_path = os.path.join(dataset, "data", fname)
+    dst_path = os.path.join(misclass_dir, fname)
+    try:
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dst_path)
+    except Exception as e:
+        print(f"Failed to copy {fname} to misclassification folder: {e}")
 
 
 def compute_confusion_matrix(result, dataset, labels):
@@ -53,10 +67,20 @@ def compute_confusion_matrix(result, dataset, labels):
             if true_label_idx is not None:
                 y_true.append(true_label_idx)
                 y_pred.append(pred_label_idx)
+                if true_label_idx != pred_label_idx:
+                    print(
+                        f"Misclassification: {fname} - True: {true_label[0]}, Pred: {pred_label}"
+                    )
+                    if true_label[0] == "NOK" and pred_label == "OK":
+                        # False positive
+                        copy_image(fname, dataset, "_fp")
+                    else:
+                        copy_image(fname, dataset, "_fn")
             else:
                 print(
                     f"Warning: True label '{true_label[0]}' for file '{fname}' not found in labels.txt, skipping."
                 )
+
     cm = confusion_matrix(y_true, y_pred, labels=list(range(len(labels))))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     disp.plot(cmap=plt.cm.Blues)
