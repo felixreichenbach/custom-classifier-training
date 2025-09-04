@@ -1,7 +1,7 @@
 .env
 .venv/
 venv/
-dataset/
+dataset*
 __pycache__/
 NOTES.md
 validation/dataset/
