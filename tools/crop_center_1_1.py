@@ -1,6 +1,7 @@
 import os
 import shutil
 from PIL import Image
+import argparse
 
 
 def center_crop_to_aspect(img, target_ratio):
@@ -40,7 +41,14 @@ def process_images(src_dir, dst_dir, target_ratio):
 
 
 if __name__ == "__main__":
-    src_folder = os.path.join(os.getcwd(), "dataset_orig")
+    parser = argparse.ArgumentParser(
+        description="Center crop images to 1:1 aspect ratio."
+    )
+    parser.add_argument(
+        "--dataset", type=str, required=True, help="Path to the dataset folder"
+    )
+    args = parser.parse_args()
+    src_folder = os.path.join(os.getcwd(), args.dataset)
     dst_folder = os.path.join(os.getcwd(), "dataset_cropped_1_1")
     process_images(src_folder, dst_folder, 1.0)
     print(f"Cropped images saved to {dst_folder}")
