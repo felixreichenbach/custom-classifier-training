@@ -45,7 +45,6 @@ def compute_confusion_matrix(result, dataset, labels):
     y_pred = []
     for item in result:
         fname = item["filename"]
-        # fname_short = fname.replace(".jpg", "")
         true_labels = gt_map.get(fname, None)
         if true_labels is None:
             print(f"No true labels found for {fname}, skipping.")
@@ -65,6 +64,15 @@ def compute_confusion_matrix(result, dataset, labels):
                 else item["predicted_class"]
             )
             if true_label_idx is not None:
+                # Copy "UNKNOWN" above certain threshold
+                unknown_idx = labels.index("UNKNOWN") if "UNKNOWN" in labels else None
+                if unknown_idx is not None:
+                    if round(item["output"][0][unknown_idx], 5) > 0.001:
+                        print(
+                            f"UNKNOWN: {round(item['output'][0][unknown_idx], 5):.8f}"
+                        )
+                        copy_image(fname, dataset, "_unknown")
+                        continue
                 y_true.append(true_label_idx)
                 y_pred.append(pred_label_idx)
                 if true_label_idx != pred_label_idx:
