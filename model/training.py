@@ -242,16 +242,29 @@ def create_dataset_classification(
     # Parse and preprocess observations in parallel
     dataset = dataset.map(mapping_fnc, num_parallel_calls=num_parallel_calls)
 
-    # Shuffle the data for each buffer size
-    # Disabling reshuffling ensures items from the training and test set will not get shuffled into each other
-    dataset = dataset.shuffle(
-        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=False
-    )
-
     train_size = int(train_split * len(filenames))
 
     train_dataset = dataset.take(train_size)
     test_dataset = dataset.skip(train_size)
+
+    # Shuffle the data for each buffer size
+    # Disabling reshuffling ensures items from the training and test set will not get shuffled into each other
+    train_dataset = train_dataset.shuffle(
+        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=False
+    )
+
+    test_batch_size = (
+        batch_size
+        if batch_size < (len(filenames) - train_size)
+        else (len(filenames) - train_size)
+    )
+    if model_type == single_label:
+        test_dataset = test_dataset.batch(test_batch_size)
+    else:
+        test_dataset = test_dataset.apply(
+            tf.data.experimental.dense_to_ragged_batch(test_batch_size)
+        )
+    test_dataset = test_dataset.prefetch(buffer_size=prefetch_buffer_size)
 
     # Batch the data for multiple steps
     # If the size of training data is smaller than the batch size,
@@ -384,10 +397,11 @@ def save_model_metrics_classification(
     model: Model,
     test_dataset: tf.data.Dataset,
 ) -> None:
-    test_images = np.array([x for x, _ in test_dataset])
-    test_labels = np.array([y for _, y in test_dataset])
+    # Removed due to gemini recommendation
+    # test_images = np.array([x for x, _ in test_dataset])
+    # test_labels = np.array([y for _, y in test_dataset])
 
-    test_metrics = model.evaluate(test_images, test_labels)
+    test_metrics = model.evaluate(test_dataset)
 
     metrics = {}
     # Since there could be potentially many occurences of the maximum value being monitored,
@@ -531,8 +545,6 @@ if __name__ == "__main__":
     # Save labels.txt file
     save_labels(LABELS + [unknown_label], MODEL_DIR)
     # Convert the model to tflite
-    save_tflite_classification(
-        model, MODEL_DIR, "classification_model", IMG_SIZE + (3,)
-    )
+    save_tflite_classification(model, MODEL_DIR, "model", IMG_SIZE + (3,))
 
     save_jsonl(MODEL_DIR, DATA_JSON)

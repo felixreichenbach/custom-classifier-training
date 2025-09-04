@@ -1,12 +1,13 @@
 .env
 .venv/
 venv/
-dataset/
+dataset*
 __pycache__/
 NOTES.md
 validation/dataset/
 .DS_Store
 
-validation/model/*
-!validation/model/
-!validation/model/.gitkeep
+ml-model/*
+!ml-model/
+!ml-model/.gitkeep
+
