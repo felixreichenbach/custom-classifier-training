@@ -1,6 +1,7 @@
 import os
 import json
 from PIL import Image
+import argparse
 
 
 def get_image_info(directory):
@@ -34,12 +35,17 @@ def get_image_info(directory):
 
 
 if __name__ == "__main__":
-    # Option 1: Use the current file's location (existing)
-    # folder = os.path.join(os.path.dirname(__file__), "../dataset/data")
-
-    # Option 2: Use the current working directory where the Python command was run from
-    folder = os.path.join(os.getcwd(), "dataset_cropped_1_1/data")
-
+    parser = argparse.ArgumentParser(
+        description="Inspect image aspect ratios in a dataset folder."
+    )
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        required=True,
+        help="Path to the dataset folder",
+    )
+    args = parser.parse_args()
+    folder = os.path.join(os.getcwd(), args.dataset + "/data")
     info = get_image_info(folder)
     # Summarize by aspect ratio
     summary = {}
