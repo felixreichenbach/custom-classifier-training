@@ -49,7 +49,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     src_folder = os.path.join(os.getcwd(), args.dataset)
-    dst_folder = os.path.join(os.getcwd(), args.dataset+"_cropped_1_1")
+    dst_folder = os.path.join(os.getcwd(), args.dataset + "_cropped_1_1")
     process_images(src_folder, dst_folder, 1.0)
     print(f"Cropped images saved to {dst_folder}")
 
