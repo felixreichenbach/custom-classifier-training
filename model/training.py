@@ -199,6 +199,42 @@ def parse_image_and_encode_labels(
     return image_resized, labels_encoded
 
 
+def create_dataset(
+    filenames,
+    labels,
+    all_labels,
+    model_type,
+    img_size,
+    num_parallel_calls=tf.data.experimental.AUTOTUNE,
+):
+    # Ensure that there is at least one image in the dataset
+    if len(filenames) == 0:
+        raise ValueError("No images found in the dataset.")
+    if len(filenames) != len(labels):
+        raise ValueError(
+            "Filenames and labels must have the same length. Found "
+            f"{len(filenames)} filenames and {len(labels)} labels."
+        )
+    # Create a first dataset of file paths and labels
+    if model_type == single_label:
+        dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
+    elif model_type == multi_label:
+        dataset = tf.data.Dataset.from_tensor_slices(
+            (filenames, tf.ragged.constant(labels))
+        )
+    else:
+        return None, None
+
+    # Apply a map to the dataset that converts filenames and text labels
+    # to normalized images and encoded labels, respectively.
+    def mapping_fnc(x, y):
+        return parse_image_and_encode_labels(x, y, all_labels, model_type, img_size)
+
+    # Parse and preprocess observations in parallel
+    dataset = dataset.map(mapping_fnc, num_parallel_calls=num_parallel_calls)
+    return dataset
+
+
 def create_dataset_classification(
     filenames: ty.List[str],
     labels: ty.List[str],
@@ -224,28 +260,60 @@ def create_dataset_classification(
         num_parallel_calls: optional integer representing the number of batches to compute asynchronously in parallel
         prefetch_buffer_size: optional integer representing the number of batches that will be buffered when prefetching
     """
-    # Create a first dataset of file paths and labels
-    if model_type == single_label:
-        dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-    elif model_type == multi_label:
-        dataset = tf.data.Dataset.from_tensor_slices(
-            (filenames, tf.ragged.constant(labels))
-        )
-    else:
-        return None, None
 
-    # Apply a map to the dataset that converts filenames and text labels
-    # to normalized images and encoded labels, respectively.
-    def mapping_fnc(x, y):
-        return parse_image_and_encode_labels(x, y, all_labels, model_type, img_size)
+    print("*********** Creating balanced datasets ***********")
+    image_names_ok = []
+    image_labels_ok = []
+    image_names_nok = []
+    image_labels_nok = []
+    for i, filename in enumerate(filenames):
+        # print(labels[i][0])
+        match labels[i][0]:
+            case "NOK":
+                image_names_nok.append(filename)
+                image_labels_nok.append(labels[i])
+            case "OK":
+                image_names_ok.append(filename)
+                image_labels_ok.append(labels[i])
+            case _:
+                print(
+                    f"Image label did not match: {filename}, removing from dataset or Label is not OK"
+                )
+    print(f"Number of images with label NOK: {len(image_names_nok)}")
+    print(f"Number of labels with NOK: {len(image_labels_nok)}")
+    print(f"Number of images with label OK: {len(image_names_ok)}")
+    print(f"Number of labels with OK: {len(image_labels_ok)}")
 
-    # Parse and preprocess observations in parallel
-    dataset = dataset.map(mapping_fnc, num_parallel_calls=num_parallel_calls)
+    # Create datasets for each class as otherwise the split may introduce bias towards one class
+    dataset_ok = create_dataset(
+        image_names_ok,
+        image_labels_ok,
+        all_labels,
+        model_type,
+        img_size,
+        num_parallel_calls,
+    )
+    dataset_nok = create_dataset(
+        image_names_nok,
+        image_labels_nok,
+        all_labels,
+        model_type,
+        img_size,
+        num_parallel_calls,
+    )
 
-    train_size = int(train_split * len(filenames))
+    print(f"Length of OK dataset: {len(list(dataset_ok))}")
+    print(f"Length of NOK dataset: {len(list(dataset_nok))}")
 
-    train_dataset = dataset.take(train_size)
-    test_dataset = dataset.skip(train_size)
+    train_size_ok = int(train_split * len(image_names_ok))
+    train_size_nok = int(train_split * len(image_names_nok))
+    train_size = train_size_ok + train_size_nok
+    print(f"Training dataset size: {train_size} images")
+
+    train_dataset = dataset_ok.take(train_size_ok)
+    train_dataset = train_dataset.concatenate(dataset_nok.take(train_size_nok))
+    test_dataset = dataset_ok.skip(train_size_ok)
+    test_dataset = test_dataset.concatenate(dataset_nok.skip(train_size_nok))
 
     # Shuffle the data for each buffer size
     # Disabling reshuffling ensures items from the training and test set will not get shuffled into each other

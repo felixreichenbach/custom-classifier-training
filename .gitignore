@@ -11,3 +11,4 @@ ml-model/*
 !ml-model/
 !ml-model/.gitkeep
 
+result.json
