@@ -142,7 +142,9 @@ def preprocessing_layers_classification(
     preprocessing = tf.keras.Sequential(
         [
             tf.keras.layers.Resizing(
-                img_size[0], img_size[1], crop_to_aspect_ratio=False
+                img_size[0],
+                img_size[1],
+                crop_to_aspect_ratio=True,  # Changed to True to center crop before resizing
             ),
         ]
     )
