@@ -47,6 +47,14 @@ python3 ./model/training.py \
     --num_epochs=1
 ```
 
+## Validate Trained Model Locally
+
+To test the model performance locally, you can use the following script by updating the dataset:
+
+```shell
+python validation/validate_tflite_model.py --model=validation/model/model.tflite --dataset=<DATASET-PATH> --output=result.json
+```
+
 ## Submit Cloud Training Job
 
 Use this command to trigger a training process witht a training script already uploaded to the Viam registry:

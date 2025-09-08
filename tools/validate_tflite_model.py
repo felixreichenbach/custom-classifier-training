@@ -67,7 +67,7 @@ def compute_confusion_matrix(result, dataset, labels):
                 # Copy "UNKNOWN" above certain threshold
                 unknown_idx = labels.index("UNKNOWN") if "UNKNOWN" in labels else None
                 if unknown_idx is not None:
-                    if round(item["output"][0][unknown_idx], 5) > 0.004:
+                    if round(item["output"][0][unknown_idx], 5) > 0.003:
                         print(
                             f"UNKNOWN: {round(item['output'][0][unknown_idx], 5):.8f}"
                         )
@@ -138,6 +138,14 @@ def load_images(image_dir):
 
 def preprocess_image(image_path, input_shape):
     img = Image.open(image_path).convert("RGB")
+    # Center crop to square
+    width, height = img.size
+    min_dim = min(width, height)
+    left = (width - min_dim) // 2
+    top = (height - min_dim) // 2
+    right = left + min_dim
+    bottom = top + min_dim
+    img = img.crop((left, top, right, bottom))
     img = img.resize((input_shape[1], input_shape[2]))
     # Activate to visually check images after preprocessing
     # plt.imshow(img)
