@@ -193,7 +193,15 @@ def parse_image_and_encode_labels(
         expand_animations=False,
         dtype=tf.dtypes.uint8,
     )
-
+    # Print shape, dtype, and filename for debugging
+    tf.print(
+        "DEBUG: image",
+        filename,
+        "shape",
+        tf.shape(image_decoded),
+        "dtype",
+        image_decoded.dtype,
+    )
     # Resize it to fixed shape
     image_resized = tf.image.resize(image_decoded, [img_size[0], img_size[1]])
     # Convert string labels to encoded labels
