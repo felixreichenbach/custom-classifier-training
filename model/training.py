@@ -7,6 +7,8 @@ import tensorflow as tf
 from keras import Model, callbacks
 import numpy as np
 import shutil
+from keras.applications import EfficientNetB0
+from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 
 single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
 multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
@@ -350,7 +352,7 @@ def create_dataset_classification(
     # This will ensure that the training data is valid model input
     train_batch_size = batch_size if batch_size < train_size else train_size
     if model_type == single_label:
-        train_dataset = train_dataset.batch(train_batch_size)
+        train_dataset = train_dataset  # .batch(train_batch_size)
     else:
         train_dataset = train_dataset.apply(
             tf.data.experimental.dense_to_ragged_batch(train_batch_size)
@@ -363,65 +365,151 @@ def create_dataset_classification(
 
 
 # Build the Keras model
-def build_and_compile_classification(
-    labels: ty.List[str], model_type: str, input_shape: ty.Tuple[int, int, int]
+def build_classification_model(
+    input_shape: ty.Tuple[int, int, int],
+    num_classes: int,
+    activation: str,
+    dropout_rate: float = 0.2,
 ) -> Model:
-    """Builds and compiles a classification model for fine-tuning using EfficientNetB0 and weights from ImageNet.
-    Args:
-        labels: list of string lists, where each string list contains up to N_LABEL labels associated with an image
-        model_type: string single_label or multi_label
-        input_shape: 3D shape of input
     """
-    units, activation, loss_fnc, metrics = get_neural_network_params(
-        len(labels), model_type
+    Builds and compiles a classification model for fine-tuning using EfficientNetB0.
+
+    This function defines the core model architecture. It's designed to work with a
+    separate data pipeline that handles preprocessing and augmentation.
+
+    Args:
+        input_shape: A tuple representing the shape of the input images, e.g., (224, 224, 3).
+        num_classes: The number of classes for the classification task. This determines the
+                     number of units in the final output layer.
+        activation: The activation function for the final output layer. For multi-class
+                    classification, 'softmax' is common. For multi-label, 'sigmoid' is used.
+        dropout_rate: The dropout rate for the regularization layer. A value between 0 and 1.
+
+    Returns:
+        A compiled Keras Model ready for training.
+    """
+
+    # Define the input layer with a float32 data type, which is a best practice.
+    inputs = Input(shape=input_shape, dtype=tf.float32)
+
+    # Load the pre-trained EfficientNetB0 model without its top layers,
+    # and specify the input tensor.
+    base_model = EfficientNetB0(
+        include_top=False, weights="imagenet", input_tensor=inputs
     )
 
-    x = tf.keras.Input(input_shape, dtype=tf.uint8)
-    # Data processing
-    preprocessing = preprocessing_layers_classification(input_shape[:-1])
-    data_augmentation = tf.keras.Sequential(
-        [
-            # tf.keras.layers.RandomFlip(),
-            tf.keras.layers.RandomRotation(0.1),
-            # tf.keras.layers.RandomZoom(0.1),
-            tf.keras.layers.RandomContrast(0.1),
-            tf.keras.layers.RandomBrightness(0.1),
-        ]
-    )
-
-    # Get the pre-trained model
-    base_model = tf.keras.applications.EfficientNetB0(
-        input_shape=input_shape, include_top=False, weights="imagenet"
-    )
-
-    # Freeze the weights of the base model. This allows to use transfer learning
-    # to train only the top layers of the model. Setting the base model to be trainable
-    # would allow for all layers, not just the top, to be retrained.
+    # Freeze the weights of the base model to prevent them from being updated
+    # during training. This is a crucial step for transfer learning.
     base_model.trainable = False
-    # Add custom layers
-    global_pooling = tf.keras.layers.GlobalAveragePooling2D()
-    # Output layer
-    classification = tf.keras.layers.Dense(units, activation=activation, name="output")
 
-    y = tf.keras.Sequential(
-        [
-            preprocessing,
-            data_augmentation,
-            base_model,
-            global_pooling,
-            classification,
-        ],
-        name="classification_layers",
-    )(x)
+    # Build the custom classification head using the Keras Functional API.
+    x = base_model.output
 
-    model = tf.keras.Model(x, y)
+    # GlobalAveragePooling2D reduces the spatial dimensions of the feature maps,
+    # creating a single feature vector.
+    x = GlobalAveragePooling2D()(x)
 
-    model.compile(
-        loss=loss_fnc,
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        metrics=metrics,
-    )
+    # Adding a Dropout layer helps prevent overfitting on the new custom layers.
+    x = Dropout(dropout_rate)(x)
+
+    # The final classification layer. The number of units and activation function
+    # are determined by the function arguments.
+    outputs = Dense(num_classes, activation=activation, name="output")(x)
+
+    # Create the complete model by defining the inputs and outputs.
+    model = Model(inputs=inputs, outputs=outputs)
+
+    # OLD CODE:
+    # x = tf.keras.Input(input_shape, dtype=tf.uint8)
+    ## Data processing
+    # preprocessing = preprocessing_layers_classification(input_shape[:-1])
+    # data_augmentation = tf.keras.Sequential(
+    #    [
+    #        # tf.keras.layers.RandomFlip(),
+    #        tf.keras.layers.RandomRotation(0.1),
+    #        # tf.keras.layers.RandomZoom(0.1),
+    #        tf.keras.layers.RandomContrast(0.1),
+    #        tf.keras.layers.RandomBrightness(0.1),
+    #    ]
+    # )
+    #
+    ## Get the pre-trained model
+    # base_model = tf.keras.applications.EfficientNetB0(
+    #    input_shape=input_shape, include_top=False, weights="imagenet"
+    # )
+    #
+    ## Freeze the weights of the base model. This allows to use transfer learning
+    ## to train only the top layers of the model. Setting the base model to be trainable
+    ## would allow for all layers, not just the top, to be retrained.
+    # base_model.trainable = False
+    ## Add custom layers
+    # global_pooling = tf.keras.layers.GlobalAveragePooling2D()
+    ## Output layer
+    # classification = tf.keras.layers.Dense(units, activation=activation, name="output")
+    #
+    # y = tf.keras.Sequential(
+    #    [
+    #        preprocessing,
+    #        data_augmentation,
+    #        base_model,
+    #        global_pooling,
+    #        classification,
+    #    ],
+    #    name="classification_layers",
+    # )(x)
+    #
+    # model = tf.keras.Model(x, y)
+
     return model
+
+
+def create_data_pipeline(
+    dataset: tf.data.Dataset,
+    image_size: ty.Tuple[int, int],
+    batch_size: int,
+    is_training: bool = False,
+) -> tf.data.Dataset:
+    """
+    Creates a data pipeline for preprocessing and optionally augmenting images.
+
+    This function handles decoding, resizing, and normalization of images,
+    along with optional data augmentation for the training set.
+
+    Args:
+        dataset: The raw tf.data.Dataset of images.
+        image_size: A tuple representing the target size for the images (height, width).
+        batch_size: The number of elements to combine in each batch.
+        is_training: A boolean flag to determine whether to apply data augmentation.
+
+    Returns:
+        A preprocessed and batched tf.data.Dataset.
+    """
+
+    # Preprocessing and normalization function
+    def preprocess_image(image, label):
+        # image = tf.image.decode_jpeg(image, channels=3)
+        image = tf.image.resize(image, image_size)
+        # Convert to float32 and normalize to [0, 1] as required by EfficientNetB0
+        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
+        return image, label
+
+    # Augmentation function for the training set
+    def augment_image(image, label):
+        image = tf.image.random_flip_left_right(image)
+        image = tf.image.random_flip_up_down(image)
+        image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
+        image = tf.image.random_brightness(image, max_delta=0.1)
+        # Note: You can add more augmentation layers here as needed.
+        return image, label
+
+    # Create the pipeline
+    if is_training:
+        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(augment_image, num_parallel_calls=tf.data.AUTOTUNE)
+    else:
+        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+
+    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
 def save_labels(labels: ty.List[str], model_dir: str) -> None:
@@ -584,8 +672,8 @@ if __name__ == "__main__":
     image_filenames, image_labels = parse_filenames_and_labels_from_json(
         DATA_JSON, LABELS, model_type
     )
-    # Generate 80/20 split for train and test data
-    train_dataset, test_dataset = create_dataset_classification(
+    # Generate 80/20 split for training and validation data
+    train_dataset, val_dataset = create_dataset_classification(
         filenames=image_filenames,
         labels=image_labels,
         all_labels=LABELS + [unknown_label],
@@ -600,16 +688,44 @@ if __name__ == "__main__":
 
     # Build and compile model
     with strategy.scope():
-        model = build_and_compile_classification(
-            LABELS + [unknown_label], model_type, IMG_SIZE + (3,)
+
+        metrics_names = (
+            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
         )
+
+        num_classes, activation, _, metrics = get_neural_network_params(
+            len(LABELS) + 1, model_type
+        )
+
+        # Build model
+        model = build_classification_model(
+            (*IMG_SIZE, 3), num_classes, activation="softmax"
+        )
+
+        # Compile model
+        model.compile(
+            loss=tf.keras.losses.categorical_crossentropy,
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+            metrics=metrics_names,
+        )
+
+        print(model.summary())
+
+        # Create the data pipelines
+        train_data_pipeline = create_data_pipeline(
+            train_dataset, IMG_SIZE, BATCH_SIZE, is_training=True
+        )
+        val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
 
         # Get callbacks for training classification
         callbacks = get_callbacks(model_type=model_type)
 
-        # Train model on data
+        # Train the model
         loss_history = model.fit(
-            x=train_dataset,
+            train_data_pipeline,
+            validation_data=val_data_pipeline,
             epochs=EPOCHS,
             callbacks=callbacks.values(),
         )
@@ -624,11 +740,6 @@ if __name__ == "__main__":
             layer.trainable = False
 
         # Re-compile the model with a very low learning rate
-        metrics_names = (
-            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        )
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
             loss=model.loss,
@@ -661,13 +772,13 @@ if __name__ == "__main__":
         combined_history,
         MODEL_DIR,
         model,
-        test_dataset,
+        val_dataset,
         model_type,
     )
 
     # Save labels.txt file
     save_labels(LABELS + [unknown_label], MODEL_DIR)
     # Convert the model to tflite
-    save_tflite_classification(model, MODEL_DIR, "model", IMG_SIZE + (3,))
+    save_tflite_classification(model, MODEL_DIR, "model", (*IMG_SIZE, 3))
 
     save_jsonl(MODEL_DIR, DATA_JSON)
