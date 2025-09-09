@@ -196,14 +196,14 @@ def parse_image_and_encode_labels(
         dtype=tf.dtypes.uint8,
     )
     # Print shape, dtype, and filename for debugging
-    tf.print(
-        "DEBUG: image",
-        filename,
-        "shape",
-        tf.shape(image_decoded),
-        "dtype",
-        image_decoded.dtype,
-    )
+    # tf.print(
+    #    "DEBUG: image",
+    #    filename,
+    #    "shape",
+    #    tf.shape(image_decoded),
+    #    "dtype",
+    #    image_decoded.dtype,
+    # )
     # Resize it to fixed shape
     image_resized = tf.image.resize(image_decoded, [img_size[0], img_size[1]])
     # Convert string labels to encoded labels
@@ -339,7 +339,7 @@ def create_dataset_classification(
         else (len(filenames) - train_size)
     )
     if model_type == single_label:
-        test_dataset = test_dataset.batch(test_batch_size)
+        test_dataset = test_dataset  # .batch(test_batch_size)
     else:
         test_dataset = test_dataset.apply(
             tf.data.experimental.dense_to_ragged_batch(test_batch_size)
@@ -460,7 +460,7 @@ def build_classification_model(
     #
     # model = tf.keras.Model(x, y)
 
-    return model
+    return base_model, model
 
 
 def create_data_pipeline(
@@ -510,6 +510,41 @@ def create_data_pipeline(
         dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
 
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+
+def fine_tune_model(base_model: Model) -> Model:
+    """
+    Prepares a pre-trained model for fine-tuning by unfreezing layers.
+
+    Args:
+        model: The Keras Model to fine-tune. This model should have a frozen
+               base model as a layer.
+        fine_tune_from_layer: The index of the layer in the base model from
+                              which to begin unfreezing. All layers with an
+                              index greater than or equal to this will be
+                              unfrozen.
+
+    Returns:
+        The recompiled Keras Model ready for the fine-tuning stage.
+    """
+
+    base_model.trainable = True
+    for layer in base_model.layers[:-3]:
+        layer.trainable = False
+    # Recompile the model with a very low learning rate.
+    # It's crucial to recompile the model for the changes to the trainable
+    # state to take effect. Using a low learning rate prevents catastrophic
+    # forgetting of the pre-trained weights.
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+        loss=tf.keras.losses.CategoricalCrossentropy(),
+        metrics=(
+            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
+        ),  # ["accuracy"],
+    )
+    return model
 
 
 def save_labels(labels: ty.List[str], model_dir: str) -> None:
@@ -700,7 +735,7 @@ if __name__ == "__main__":
         )
 
         # Build model
-        model = build_classification_model(
+        base_model, model = build_classification_model(
             (*IMG_SIZE, 3), num_classes, activation="softmax"
         )
 
@@ -730,36 +765,54 @@ if __name__ == "__main__":
             callbacks=callbacks.values(),
         )
 
-        # Fine tuning by unfreezing some of the base model layers
-        # Unfreeze some layers for fine-tuning
-        base_model = model.get_layer("classification_layers")
-        base_model.trainable = True
+        # Fine-tuning the model
+        # Prepare the model for fine-tuning by unfreezing layers.
+        # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
+        my_model = fine_tune_model(model)  # , fine_tune_from_layer=100)
 
-        # Freeze all layers except for the last 3
-        for layer in base_model.layers[:-3]:
-            layer.trainable = False
+        # Print the updated summary to see which layers are now trainable.
+        my_model.summary()
 
-        # Re-compile the model with a very low learning rate
-        model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-            loss=model.loss,
-            metrics=metrics_names,
-        )
-
-        # Continue training for a few more epochs with fine-tuning
-        fine_tune_epochs = 100  # You can adjust this number
-        total_epochs = EPOCHS + fine_tune_epochs
-
-        fine_tune_loss_history = model.fit(
-            x=train_dataset,
-            epochs=total_epochs,
+        fine_tune_loss_history = my_model.fit(
+            train_data_pipeline,
+            validation_data=val_data_pipeline,
+            epochs=EPOCHS + 5,
             initial_epoch=len(loss_history.epoch),
             callbacks=callbacks.values(),
         )
 
+        # OLD CODE:
+        # Fine tuning by unfreezing some of the base model layers
+        # Unfreeze some layers for fine-tuning
+        # base_model = model.get_layer("classification_layers")
+        # base_model.trainable = True
+
+        # Freeze all layers except for the last 3
+        # for layer in base_model.layers[:-3]:
+        #    layer.trainable = False
+
+        # Re-compile the model with a very low learning rate
+        # model.compile(
+        #    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+        #    loss=model.loss,
+        #    metrics=metrics_names,
+        # )
+
+        # Continue training for a few more epochs with fine-tuning
+        # fine_tune_epochs = 100  # You can adjust this number
+        # total_epochs = EPOCHS + fine_tune_epochs
+
+        #        #fine_tune_loss_history = model.fit(
+        #    x=train_dataset,
+        #    epochs=total_epochs,
+        #    initial_epoch=len(loss_history.epoch),
+        #    callbacks=callbacks.values(),
+        # )
+
     # Create an empty dictionary to store the combined history
     combined_history = {}
-
+    print("loss_history keys:", loss_history.history.keys())
+    print("fine_tune_loss_history keys:", fine_tune_loss_history.history.keys())
     # Iterate over the keys (metrics) in the first history
     for key in loss_history.history.keys():
         # Concatenate the lists from both histories
