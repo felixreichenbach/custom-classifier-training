@@ -115,9 +115,9 @@ def get_neural_network_params(
         activation = "softmax"
         loss = tf.keras.losses.categorical_crossentropy
         metrics = (
-            tf.keras.metrics.CategoricalAccuracy(),
-            tf.keras.metrics.Precision(),
-            tf.keras.metrics.Recall(),
+            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
         )
     # Multi-label Classification
     elif model_type == multi_label:
@@ -125,9 +125,9 @@ def get_neural_network_params(
         activation = "sigmoid"
         loss = tf.keras.losses.binary_crossentropy
         metrics = (
-            tf.keras.metrics.BinaryAccuracy(),
-            tf.keras.metrics.Precision(),
-            tf.keras.metrics.Recall(),
+            tf.keras.metrics.BinaryAccuracy(name="binary_accuracy"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
         )
     return units, activation, loss, metrics
 
@@ -465,25 +465,30 @@ def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
 
 
 def save_model_metrics_classification(
-    loss_history: callbacks.History,
-    monitored_val: ty.List[str],
+    combined_history: dict,
     model_dir: str,
     model: Model,
     test_dataset: tf.data.Dataset,
+    model_type: str,
 ) -> None:
-    # Removed due to gemini recommendation
-    # test_images = np.array([x for x, _ in test_dataset])
-    # test_labels = np.array([y for _, y in test_dataset])
+    if model_type == single_label:
+        monitored_metric_key = "categorical_accuracy"
+    else:
+        monitored_metric_key = "binary_accuracy"
+
+    monitored_val = combined_history[monitored_metric_key]
+
+    # Find the index of the best value
+    monitored_metric_max_idx = len(monitored_val) - np.argmax(monitored_val[::-1]) - 1
 
     test_metrics = model.evaluate(test_dataset)
 
     metrics = {}
-    # Since there could be potentially many occurences of the maximum value being monitored,
-    # we reverse the list storing the tracked values and take the last occurence.
-    monitored_metric_max_idx = len(monitored_val) - np.argmax(monitored_val[::-1]) - 1
     for i, key in enumerate(model.metrics_names):
+        # Access metrics directly from the dictionary
         metrics["train_" + key] = get_rounded_number(
-            loss_history.history[key][monitored_metric_max_idx], ROUNDING_DIGITS
+            combined_history[key][monitored_metric_max_idx],
+            ROUNDING_DIGITS,
         )
         metrics["test_" + key] = get_rounded_number(test_metrics[i], ROUNDING_DIGITS)
 
@@ -612,9 +617,9 @@ if __name__ == "__main__":
 
         # Re-compile the model with a very low learning rate
         metrics_names = (
-            tf.keras.metrics.CategoricalAccuracy(),
-            tf.keras.metrics.Precision(),
-            tf.keras.metrics.Recall(),
+            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
         )
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
@@ -633,19 +638,23 @@ if __name__ == "__main__":
             callbacks=callbacks.values(),
         )
 
-    # Get the values of what is being monitored in the early stopping policy,
-    # since this is what is used to restore best weights for the resulting model.
-    monitored_val = callbacks[early_stopping_key].get_monitor_value(
-        loss_history.history
-    )
+    # Create an empty dictionary to store the combined history
+    combined_history = {}
+
+    # Iterate over the keys (metrics) in the first history
+    for key in loss_history.history.keys():
+        # Concatenate the lists from both histories
+        combined_history[key] = (
+            loss_history.history[key] + fine_tune_loss_history.history[key]
+        )
 
     # Save trained model metrics to JSON file
     save_model_metrics_classification(
-        loss_history,
-        monitored_val,
+        combined_history,
         MODEL_DIR,
         model,
         test_dataset,
+        model_type,
     )
 
     # Save labels.txt file
