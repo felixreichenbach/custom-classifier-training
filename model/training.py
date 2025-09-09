@@ -386,10 +386,6 @@ def build_and_compile_classification(
         input_shape=input_shape, include_top=False, weights="imagenet"
     )
 
-    base_model = tf.keras.applications.EfficientNetB0(
-        input_shape=(224, 224, 3), include_top=False, weights="imagenet"
-    )
-
     # Freeze the weights of the base model. This allows to use transfer learning
     # to train only the top layers of the model. Setting the base model to be trainable
     # would allow for all layers, not just the top, to be retrained.
