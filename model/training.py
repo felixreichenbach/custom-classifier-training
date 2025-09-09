@@ -411,7 +411,7 @@ def build_and_compile_classification(
     model.compile(
         loss=loss_fnc,
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
-        metrics=[metrics],
+        metrics=metrics,
     )
     return model
 
@@ -591,42 +591,47 @@ if __name__ == "__main__":
             LABELS + [unknown_label], model_type, IMG_SIZE + (3,)
         )
 
-    # Get callbacks for training classification
-    callbacks = get_callbacks(model_type=model_type)
+        # Get callbacks for training classification
+        callbacks = get_callbacks(model_type=model_type)
 
-    # Train model on data
-    loss_history = model.fit(
-        x=train_dataset,
-        epochs=EPOCHS,
-        callbacks=callbacks.values(),
-    )
+        # Train model on data
+        loss_history = model.fit(
+            x=train_dataset,
+            epochs=EPOCHS,
+            callbacks=callbacks.values(),
+        )
 
-    # Fine tuning by unfreezing some of the base model layers
-    # Unfreeze some layers for fine-tuning
-    base_model = model.get_layer("classification_layers")
-    base_model.trainable = True
+        # Fine tuning by unfreezing some of the base model layers
+        # Unfreeze some layers for fine-tuning
+        base_model = model.get_layer("classification_layers")
+        base_model.trainable = True
 
-    # Freeze all layers except for the last 20
-    for layer in base_model.layers[:-20]:
-        layer.trainable = False
+        # Freeze all layers except for the last 20
+        for layer in base_model.layers[:-20]:
+            layer.trainable = False
 
-    # Re-compile the model with a very low learning rate
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-        loss=model.loss,
-        metrics=model.metrics,
-    )
+        # Re-compile the model with a very low learning rate
+        metrics_names = (
+            tf.keras.metrics.CategoricalAccuracy(),
+            tf.keras.metrics.Precision(),
+            tf.keras.metrics.Recall(),
+        )
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+            loss=model.loss,
+            metrics=metrics_names,
+        )
 
-    # Continue training for a few more epochs with fine-tuning
-    fine_tune_epochs = 100  # You can adjust this number
-    total_epochs = EPOCHS + fine_tune_epochs
+        # Continue training for a few more epochs with fine-tuning
+        fine_tune_epochs = 100  # You can adjust this number
+        total_epochs = EPOCHS + fine_tune_epochs
 
-    fine_tune_loss_history = model.fit(
-        x=train_dataset,
-        epochs=total_epochs,
-        initial_epoch=loss_history.epoch[-1],
-        callbacks=callbacks.values(),
-    )
+        fine_tune_loss_history = model.fit(
+            x=train_dataset,
+            epochs=total_epochs,
+            initial_epoch=len(loss_history.epoch),
+            callbacks=callbacks.values(),
+        )
 
     # Get the values of what is being monitored in the early stopping policy,
     # since this is what is used to restore best weights for the resulting model.
