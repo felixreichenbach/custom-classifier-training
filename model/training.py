@@ -193,7 +193,15 @@ def parse_image_and_encode_labels(
         expand_animations=False,
         dtype=tf.dtypes.uint8,
     )
-
+    # Print shape, dtype, and filename for debugging
+    tf.print(
+        "DEBUG: image",
+        filename,
+        "shape",
+        tf.shape(image_decoded),
+        "dtype",
+        image_decoded.dtype,
+    )
     # Resize it to fixed shape
     image_resized = tf.image.resize(image_decoded, [img_size[0], img_size[1]])
     # Convert string labels to encoded labels
@@ -611,8 +619,8 @@ if __name__ == "__main__":
         base_model = model.get_layer("classification_layers")
         base_model.trainable = True
 
-        # Freeze all layers except for the last 20
-        for layer in base_model.layers[:-20]:
+        # Freeze all layers except for the last 3
+        for layer in base_model.layers[:-3]:
             layer.trainable = False
 
         # Re-compile the model with a very low learning rate
