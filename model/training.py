@@ -375,7 +375,9 @@ def build_and_compile_classification(
         [
             # tf.keras.layers.RandomFlip(),
             tf.keras.layers.RandomRotation(0.1),
-            tf.keras.layers.RandomZoom(0.1),
+            # tf.keras.layers.RandomZoom(0.1),
+            tf.keras.layers.RandomContrast(0.1),
+            tf.keras.layers.RandomBrightness(0.1),
         ]
     )
 
@@ -383,6 +385,11 @@ def build_and_compile_classification(
     base_model = tf.keras.applications.EfficientNetB0(
         input_shape=input_shape, include_top=False, weights="imagenet"
     )
+
+    base_model = tf.keras.applications.EfficientNetB0(
+        input_shape=(224, 224, 3), include_top=False, weights="imagenet"
+    )
+
     # Freeze the weights of the base model. This allows to use transfer learning
     # to train only the top layers of the model. Setting the base model to be trainable
     # would allow for all layers, not just the top, to be retrained.
@@ -399,7 +406,8 @@ def build_and_compile_classification(
             base_model,
             global_pooling,
             classification,
-        ]
+        ],
+        name="classification_layers",
     )(x)
 
     model = tf.keras.Model(x, y)
@@ -594,6 +602,33 @@ if __name__ == "__main__":
     loss_history = model.fit(
         x=train_dataset,
         epochs=EPOCHS,
+        callbacks=callbacks.values(),
+    )
+
+    # Fine tuning by unfreezing some of the base model layers
+    # Unfreeze some layers for fine-tuning
+    base_model = model.get_layer("classification_layers")
+    base_model.trainable = True
+
+    # Freeze all layers except for the last 20
+    for layer in base_model.layers[:-20]:
+        layer.trainable = False
+
+    # Re-compile the model with a very low learning rate
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+        loss=model.loss,
+        metrics=model.metrics,
+    )
+
+    # Continue training for a few more epochs with fine-tuning
+    fine_tune_epochs = 100  # You can adjust this number
+    total_epochs = EPOCHS + fine_tune_epochs
+
+    fine_tune_loss_history = model.fit(
+        x=train_dataset,
+        epochs=total_epochs,
+        initial_epoch=loss_history.epoch[-1],
         callbacks=callbacks.values(),
     )
 
