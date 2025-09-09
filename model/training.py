@@ -611,8 +611,8 @@ if __name__ == "__main__":
         base_model = model.get_layer("classification_layers")
         base_model.trainable = True
 
-        # Freeze all layers except for the last 20
-        for layer in base_model.layers[:-20]:
+        # Freeze all layers except for the last 3
+        for layer in base_model.layers[:-3]:
             layer.trainable = False
 
         # Re-compile the model with a very low learning rate
