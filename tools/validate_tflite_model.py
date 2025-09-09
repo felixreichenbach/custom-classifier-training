@@ -43,11 +43,12 @@ def compute_confusion_matrix(result, dataset, labels):
     gt_map = load_dataset_jsonl_labels(dataset)
     y_true = []
     y_pred = []
+    summary = {"fp": 0, "fn": 0, "unknown": 0, "tp": 0, "tn": 0, "total": 0}
     for item in result:
         fname = item["filename"]
         true_labels = gt_map.get(fname, None)
-        if true_labels is None:
-            print(f"No true labels found for {fname}, skipping.")
+        # if true_labels is None:
+        #    print(f"No true labels found for {fname}, skipping.")
         # Keep only labels that exist in both true_labels and labels
         true_label = (
             [lbl for lbl in true_labels if lbl in labels] if true_labels else []
@@ -64,31 +65,50 @@ def compute_confusion_matrix(result, dataset, labels):
                 else item["predicted_class"]
             )
             if true_label_idx is not None:
+                summary["total"] += 1
                 # Copy "UNKNOWN" above certain threshold
                 unknown_idx = labels.index("UNKNOWN") if "UNKNOWN" in labels else None
                 if unknown_idx is not None:
-                    if round(item["output"][0][unknown_idx], 5) > 0.003:
+                    if round(item["output"][0][unknown_idx], 5) > 0.005:
+                        summary["unknown"] += 1
                         print(
-                            f"UNKNOWN: {round(item['output'][0][unknown_idx], 5):.8f}"
+                            f"UNKNOWN: {round(item['output'][0][unknown_idx], 5):.8f} - {fname}"
                         )
                         copy_image(fname, dataset, "_unknown")
                         continue
                 y_true.append(true_label_idx)
                 y_pred.append(pred_label_idx)
                 if true_label_idx != pred_label_idx:
-                    print(
-                        f"Misclassification: {fname} - True: {true_label[0]}, Pred: {pred_label}"
-                    )
                     if true_label[0] == "NOK" and pred_label == "OK":
                         # False positive
+                        summary["fp"] += 1
+                        print(
+                            f"False Positive: True: {true_label[0]}, Pred: {pred_label} - {fname}"
+                        )
                         copy_image(fname, dataset, "_fp")
                     else:
+                        # False negative
+                        summary["fn"] += 1
+                        print(
+                            f"False Negative: True: {true_label[0]}, Pred: {pred_label} - {fname}"
+                        )
                         copy_image(fname, dataset, "_fn")
+                else:
+                    if true_label[0] == "NOK" and pred_label == "NOK":
+                        summary["tp"] += 1
+                    elif true_label[0] == "OK" and pred_label == "OK":
+                        summary["tn"] += 1
             else:
                 print(
                     f"Warning: True label '{true_label[0]}' for file '{fname}' not found in labels.txt, skipping."
                 )
-
+    print("Summary: {}".format(summary))
+    print(f"Accuracy Total: { (summary['tp'] + summary['tn']) / summary['total'] }")
+    print(
+        f"Accuracy Filtered: { (summary['tp'] + summary['tn']) / (summary['tn'] + summary['tp'] + summary['fn'] + summary['fp'])}"
+    )
+    # Remove "UNKNOWN" from confusion matrix if present
+    labels.pop(labels.index("UNKNOWN")) if "UNKNOWN" in labels else None
     cm = confusion_matrix(y_true, y_pred, labels=list(range(len(labels))))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=labels)
     disp.plot(cmap=plt.cm.Blues)
