@@ -389,7 +389,7 @@ def save_tflite_classification(
         target_shape: desired output shape of predictions from model
     """
     # Convert the model to tflite, with batch size 1 so the graph does not have dynamic-sized tensors.
-    input = tf.keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
+    input = tf.keras.Input(target_shape, batch_size=1, dtype=tf.float32)
     output = model(input, training=False)
     wrapped_model = tf.keras.Model(inputs=input, outputs=output)
 
@@ -591,7 +591,7 @@ if __name__ == "__main__":
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=EPOCHS + 5,
+            epochs=EPOCHS + 1,
             initial_epoch=len(loss_history.epoch),
             callbacks=callbacks.values(),
         )
@@ -607,17 +607,17 @@ if __name__ == "__main__":
             loss_history.history[key] + fine_tune_loss_history.history[key]
         )
 
-    # Save trained model metrics to JSON file
-    save_model_metrics_classification(
-        combined_history,
-        MODEL_DIR,
-        model,
-        val_dataset,
-    )
+    ## Save trained model metrics to JSON file
+    # save_model_metrics_classification(
+    #    combined_history,
+    #    MODEL_DIR,
+    #    model,
+    #    val_dataset,
+    # )
 
     # Save labels.txt file
     save_labels(LABELS, MODEL_DIR)
     # Convert the model to tflite
     save_tflite_classification(model, MODEL_DIR, "model", (*IMG_SIZE, 3))
 
-    save_jsonl(MODEL_DIR, DATA_JSON)
+    # save_jsonl(MODEL_DIR, DATA_JSON)
