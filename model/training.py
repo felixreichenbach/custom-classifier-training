@@ -3,14 +3,13 @@ import json
 import os
 import sys
 import typing as ty
-import keras
 import tensorflow as tf
-from keras import Model, callbacks
 import numpy as np
 import shutil
 from keras.applications import EfficientNetB0
 from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 import collections
+import keras
 
 labels_filename = "labels.txt"
 metrics_filename = "model_metrics.json"
@@ -97,10 +96,18 @@ def encoded_labels(
         model_type: string single_label or multi_label
     """
 
-    encoder = tf.keras.layers.StringLookup(
-        vocabulary=all_labels, num_oov_indices=0, output_mode="one_hot"
-    )
-    return encoder(image_labels)
+    # Use integer encoding for binary classification, one-hot for multi-class
+    if len(all_labels) == 2:
+        encoder = tf.keras.layers.StringLookup(
+            vocabulary=all_labels, num_oov_indices=0, output_mode="int"
+        )
+        # StringLookup returns 0-based class indices, but as shape (batch, 1), so squeeze
+        return tf.squeeze(encoder(image_labels), axis=-1)
+    else:
+        encoder = tf.keras.layers.StringLookup(
+            vocabulary=all_labels, num_oov_indices=0, output_mode="one_hot"
+        )
+        return encoder(image_labels)
 
 
 def parse_image_and_encode_labels(
@@ -268,7 +275,7 @@ def build_classification_model(
     num_classes: int,
     activation: str,
     dropout_rate: float = 0.2,
-) -> Model:
+) -> keras.Model:
     """
     Builds and compiles a classification model for fine-tuning using EfficientNetB0.
 
@@ -309,8 +316,7 @@ def build_classification_model(
     outputs = Dense(num_classes, activation=activation, name="output")(x)
 
     # Create the complete model by defining the inputs and outputs.
-    model = Model(inputs=base_model.input, outputs=outputs)
-
+    model = keras.Model(inputs=base_model.input, outputs=outputs)
     return base_model, model
 
 
@@ -336,30 +342,39 @@ def create_data_pipeline(
         A preprocessed and batched tf.data.Dataset.
     """
 
-    # Preprocessing and normalization function
-    def preprocess_image(image, label):
-        image = keras.layers.CenterCrop(image_size[0], image_size[1])(image)
-        print(f"After cropping: {image.shape}")
-        # image = tf.image.resize(image, image_size)
-        return image, label
+    preprocessing_pipeline = keras.Sequential(
+        [
+            keras.layers.Resizing(
+                image_size[0], image_size[1], crop_to_aspect_ratio=True
+            ),
+            keras.layers.Rescaling(1.0 / 255),
+        ]
+    )
 
-    # Augmentation function for the training set
-    def augment_image(image, label):
-        # TODO: use this: https://www.tensorflow.org/guide/keras/preprocessing_layers#image_data_augmentation_2
-        # image = tf.keras.layers.RandomRotation(0.1)(image)
-        # image = tf.image.random_flip_left_right(image)
-        # image = tf.image.random_flip_up_down(image)
-        # image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
-        # image = tf.image.random_brightness(image, max_delta=0.1)
-        # Note: You can add more augmentation layers here as needed.
-        return image, label
+    augmentation_pipeline = keras.Sequential(
+        [
+            # keras.layers.RandomRotation(0.1),
+            # keras.layers.RandomFlip("horizontal_and_vertical"),
+            # keras.layers.RandomContrast(0.1),
+            # keras.layers.RandomBrightness(0.1),
+        ]
+    )
 
     # Create the pipeline
     if is_training:
-        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.map(augment_image, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x, y: (preprocessing_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+        dataset = dataset.map(
+            lambda x, y: (augmentation_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
     else:
-        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x, y: (preprocessing_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
 
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
@@ -378,7 +393,7 @@ def save_labels(labels: ty.List[str], model_dir: str) -> None:
 
 
 def save_tflite_classification(
-    model: Model,
+    model: keras.Model,
     model_dir: str,
     model_name: str,
     target_shape: ty.Tuple[int, int, int],
@@ -415,7 +430,7 @@ def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
 def save_model_metrics_classification(
     combined_history: dict,
     model_dir: str,
-    model: Model,
+    model: keras.Model,
     test_dataset: tf.data.Dataset,
 ) -> None:
 
@@ -450,7 +465,7 @@ def get_callbacks():
 
     callbackEarlyStopping = tf.keras.callbacks.EarlyStopping(
         # Stop training when `monitor` value is no longer improving
-        monitor="categorical_accuracy",
+        monitor="binary_accuracy",  # "categorical_accuracy",
         # "no longer improving" being defined as "no better than 'min_delta' less"
         min_delta=1e-3,
         # "no longer improving" being further defined as "for at least 'patience' epochs"
@@ -482,7 +497,7 @@ if __name__ == "__main__":
     else:
         strategy = tf.distribute.OneDeviceStrategy(device="/cpu:0")
 
-    IMG_SIZE = (256, 256)
+    IMG_SIZE = (224, 224)
     # Batch size, buffer size, epochs can be adjusted according to the training job.
     BATCH_SIZE = 16
     SHUFFLE_BUFFER_SIZE = 32
@@ -531,28 +546,40 @@ if __name__ == "__main__":
     # Build and compile model
     with strategy.scope():
 
-        num_classes = len(LABELS)
-        activation = "softmax"
-        loss = tf.keras.losses.categorical_crossentropy
-        metrics_names = (
-            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        )
+        if len(LABELS) == 2:
+            # Binary classification
+            num_classes = 1
+            activation = "sigmoid"
+            loss = tf.keras.losses.binary_crossentropy
+            metrics_names = [
+                tf.keras.metrics.BinaryAccuracy(name="binary_accuracy"),
+                tf.keras.metrics.Precision(name="precision"),
+                tf.keras.metrics.Recall(name="recall"),
+            ]
+        else:
+            # Multi-class classification
+            num_classes = len(LABELS)
+            activation = "softmax"
+            loss = tf.keras.losses.categorical_crossentropy
+            metrics_names = [
+                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+                tf.keras.metrics.Precision(name="precision"),
+                tf.keras.metrics.Recall(name="recall"),
+            ]
 
         # Build model
         base_model, model = build_classification_model(
-            (*IMG_SIZE, 3), num_classes, activation="softmax"
+            (*IMG_SIZE, 3), num_classes, activation=activation
         )
 
         # Compile model
         model.compile(
-            loss=tf.keras.losses.categorical_crossentropy,
+            loss=loss,
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
             metrics=metrics_names,
         )
 
-        print(model.summary())
+        # print(model.summary())
 
         # Get callbacks for training classification
         my_callbacks = get_callbacks()
@@ -570,7 +597,7 @@ if __name__ == "__main__":
         # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
         base_model.trainable = False
 
-        for layer in base_model.layers[:-3]:  # Unfreeze last 3 layers
+        for layer in base_model.layers[-1:]:  # Unfreeze last 3 layers
             layer.trainable = True
 
         # Recompile the model with a very low learning rate.
@@ -579,16 +606,12 @@ if __name__ == "__main__":
         # forgetting of the pre-trained weights.
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-            loss=tf.keras.losses.CategoricalCrossentropy(),
-            metrics=(
-                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-                tf.keras.metrics.Precision(name="precision"),
-                tf.keras.metrics.Recall(name="recall"),
-            ),
+            loss=loss,
+            metrics=metrics_names,
         )
 
         # Print the updated summary to see which layers are now trainable.
-        print(model.summary())
+        # print(model.summary())
 
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
