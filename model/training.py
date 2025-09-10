@@ -362,43 +362,6 @@ def create_data_pipeline(
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def fine_tune_model(my_model: Model) -> Model:
-    """
-    Prepares a pre-trained model for fine-tuning by unfreezing layers.
-
-    Args:
-        model: The Keras Model to fine-tune. This model should have a frozen
-               base model as a layer.
-        fine_tune_from_layer: The index of the layer in the base model from
-                              which to begin unfreezing. All layers with an
-                              index greater than or equal to this will be
-                              unfrozen.
-
-    Returns:
-        The recompiled Keras Model ready for the fine-tuning stage.
-    """
-
-    my_model.trainable = True
-    for layer in my_model.layers[
-        :-3
-    ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30 I would expect this to be higher than three as I add roughly three layers
-        layer.trainable = False
-    # Recompile the model with a very low learning rate.
-    # It's crucial to recompile the model for the changes to the trainable
-    # state to take effect. Using a low learning rate prevents catastrophic
-    # forgetting of the pre-trained weights.
-    my_model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-        loss=tf.keras.losses.CategoricalCrossentropy(),
-        metrics=(
-            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        ),
-    )
-    return my_model
-
-
 def save_labels(labels: ty.List[str], model_dir: str) -> None:
     """Saves a label.txt of output labels to the specified model directory.
     Args:
