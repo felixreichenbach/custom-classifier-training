@@ -12,7 +12,6 @@ from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 import collections
 
 labels_filename = "labels.txt"
-unknown_label = "UNKNOWN"
 metrics_filename = "model_metrics.json"
 
 
@@ -70,7 +69,7 @@ def parse_filenames_and_labels_from_json(
             image_filenames.append(json_line["image_path"])
 
             annotations = json_line["classification_annotations"]
-            labels = [unknown_label]
+            labels = []
             for annotation in annotations:
                 # For single label model, we want at most one label.
                 # If multiple valid labels are present, we arbitrarily select the last one.
@@ -633,7 +632,7 @@ if __name__ == "__main__":
     train_dataset, val_dataset = create_dataset_classification(
         filenames=image_filenames,
         labels=image_labels,
-        all_labels=LABELS,  # + [unknown_label],
+        all_labels=LABELS,
         train_split=0.8,
         batch_size=GLOBAL_BATCH_SIZE,
         shuffle_buffer_size=SHUFFLE_BUFFER_SIZE,
