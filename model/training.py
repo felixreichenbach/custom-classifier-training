@@ -39,14 +39,12 @@ def parse_args(args):
         help="Space-separated list of labels, MUST be enclosed in single quotes",
         # ex: 'green_square blue_triangle'
     )
-    parser.add_argument("--model_type", dest="model_type", type=str)
     parsed_args = parser.parse_args(args)
     return (
         parsed_args.data_json,
         parsed_args.model_dir,
         parsed_args.num_epochs,
         parsed_args.labels,
-        parsed_args.model_type,
     )
 
 
@@ -59,8 +57,9 @@ def parse_filenames_and_labels_from_json(
     Args:
         filename: JSONLines file containing filenames and labels
         all_labels: list of all N_LABELS
-        model_type: string single_label or multi_label
     """
+
+    # TODO: Simplify for single label models
     image_filenames = []
     image_labels = []
 
@@ -399,7 +398,7 @@ def fine_tune_model(base_model: Model) -> Model:
     # It's crucial to recompile the model for the changes to the trainable
     # state to take effect. Using a low learning rate prevents catastrophic
     # forgetting of the pre-trained weights.
-    model.compile(
+    base_model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
         loss=tf.keras.losses.CategoricalCrossentropy(),
         metrics=(
@@ -408,7 +407,7 @@ def fine_tune_model(base_model: Model) -> Model:
             tf.keras.metrics.Recall(name="recall"),
         ),
     )
-    return model
+    return base_model
 
 
 def save_labels(labels: ty.List[str], model_dir: str) -> None:
@@ -541,7 +540,7 @@ if __name__ == "__main__":
     NUM_WORKERS = strategy.num_replicas_in_sync
     GLOBAL_BATCH_SIZE = BATCH_SIZE * NUM_WORKERS
 
-    DATA_JSON, MODEL_DIR, num_epochs, labels, model_type = parse_args(sys.argv[1:])
+    DATA_JSON, MODEL_DIR, num_epochs, labels = parse_args(sys.argv[1:])
     EPOCHS = 200 if num_epochs is None or 0 else int(num_epochs)
     if EPOCHS < 0:
         raise ValueError("Invalid number of epochs, must be a positive nonzero number")
