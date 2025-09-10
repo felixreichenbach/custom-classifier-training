@@ -380,27 +380,7 @@ def build_classification_model(
     """
 
     # Define the input layer with a float32 data type, which is a best practice.
-    inputs = Input(shape=input_shape, dtype=tf.float32)
-
-    preprocessing = tf.keras.Sequential(
-        [
-            tf.keras.layers.Resizing(
-                input_shape[0],
-                input_shape[1],
-                crop_to_aspect_ratio=True,  # Changed to True to center crop before resizing
-            ),
-        ]
-    )
-
-    data_augmentation = tf.keras.Sequential(
-        [
-            # tf.keras.layers.RandomFlip(),
-            tf.keras.layers.RandomRotation(0.1),
-            tf.keras.layers.RandomZoom(0.1),
-            # tf.keras.layers.RandomContrast(0.1),
-            # tf.keras.layers.RandomBrightness(0.1),
-        ]
-    )
+    inputs = Input(shape=input_shape)
 
     # Load the pre-trained EfficientNetB0 model without its top layers,
     # and specify the input tensor.
@@ -412,34 +392,16 @@ def build_classification_model(
     # during training. This is a crucial step for transfer learning.
     base_model.trainable = False
 
-    # Add custom layers
-    global_pooling = tf.keras.layers.GlobalAveragePooling2D()
-    # GlobalAveragePooling2D reduces the spatial dimensions of the feature maps,
-
-    # Adding a Dropout layer helps prevent overfitting on the new custom layers.
-    dropout = Dropout(dropout_rate)
-
-    # The final classification layer. The number of units and activation function
-    # are determined by the function arguments.
-    classification = Dense(num_classes, activation=activation, name="output")
-
-    outputs = tf.keras.Sequential(
-        [
-            preprocessing,
-            data_augmentation,
-            base_model,
-            global_pooling,
-            dropout,
-            classification,
-        ],
-        name="classification_layers",
-    )(inputs)
-
     # Build the custom classification head using the Keras Functional API.
     x = base_model.output
 
+    # Add custom layers on top of the base model
+    x = GlobalAveragePooling2D()(x)
+    x = Dropout(dropout_rate)(x)
+    outputs = Dense(num_classes, activation=activation, name="output")(x)
+
     # Create the complete model by defining the inputs and outputs.
-    model = Model(inputs=inputs, outputs=outputs)
+    model = Model(inputs=base_model.input, outputs=outputs)
 
     return base_model, model
 
