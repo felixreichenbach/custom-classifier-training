@@ -10,8 +10,6 @@ import shutil
 from keras.applications import EfficientNetB0
 from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 
-single_label = "MODEL_TYPE_SINGLE_LABEL_CLASSIFICATION"
-multi_label = "MODEL_TYPE_MULTI_LABEL_CLASSIFICATION"
 labels_filename = "labels.txt"
 unknown_label = "UNKNOWN"
 metrics_filename = "model_metrics.json"
@@ -23,17 +21,6 @@ TFLITE_OPS = [
 ]
 
 ROUNDING_DIGITS = 5
-
-# Normalization parameters are required when reprocessing the image.
-_INPUT_NORM_MEAN = 127.5
-_INPUT_NORM_STD = 127.5
-
-early_stopping_key = "early_stopping"
-reduce_lr_on_plateau_key = "reduce_lr_on_plateau"
-early_stopping_monitor_val = {
-    single_label: "categorical_accuracy",
-    multi_label: "binary_accuracy",
-}
 
 
 def parse_args(args):
@@ -64,7 +51,8 @@ def parse_args(args):
 
 
 def parse_filenames_and_labels_from_json(
-    filename: str, all_labels: ty.List[str], model_type: str
+    filename: str,
+    all_labels: ty.List[str],
 ) -> ty.Tuple[ty.List[str], ty.List[str]]:
     """Load and parse JSON file to return image filenames and corresponding labels.
        The JSON file contains lines, where each line has the key "image_path" and "classification_annotations".
@@ -84,14 +72,10 @@ def parse_filenames_and_labels_from_json(
             annotations = json_line["classification_annotations"]
             labels = [unknown_label]
             for annotation in annotations:
-                if model_type == multi_label:
-                    if annotation["annotation_label"] in all_labels:
-                        labels.append(annotation["annotation_label"])
                 # For single label model, we want at most one label.
                 # If multiple valid labels are present, we arbitrarily select the last one.
-                if model_type == single_label:
-                    if annotation["annotation_label"] in all_labels:
-                        labels = [annotation["annotation_label"]]
+                if annotation["annotation_label"] in all_labels:
+                    labels = [annotation["annotation_label"]]
             image_labels.append(labels)
     return image_filenames, image_labels
 
@@ -100,38 +84,6 @@ def save_jsonl(model_dir: str, filename: str) -> None:
     """Copies the JSONLines file to the specified model directory."""
     dest = os.path.join(model_dir, "parsed_json_lines.jsonl")
     shutil.copyfile(filename, dest)
-
-
-def get_neural_network_params(
-    num_classes: int, model_type: str
-) -> ty.Tuple[str, str, str, str]:
-    """Function that returns units and activation used for the last layer
-        and loss function for the model, based on number of classes and model type.
-    Args:
-        num_classes: number of classes to be predicted by the model
-        model_type: string single-label or multi-label for desired output
-    """
-    # Single-label Classification
-    if model_type == single_label:
-        units = num_classes
-        activation = "softmax"
-        loss = tf.keras.losses.categorical_crossentropy
-        metrics = (
-            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        )
-    # Multi-label Classification
-    elif model_type == multi_label:
-        units = num_classes
-        activation = "sigmoid"
-        loss = tf.keras.losses.binary_crossentropy
-        metrics = (
-            tf.keras.metrics.BinaryAccuracy(name="binary_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        )
-    return units, activation, loss, metrics
 
 
 def preprocessing_layers_classification(
@@ -154,7 +106,8 @@ def preprocessing_layers_classification(
 
 
 def encoded_labels(
-    image_labels: ty.List[str], all_labels: ty.List[str], model_type: str
+    image_labels: ty.List[str],
+    all_labels: ty.List[str],
 ) -> tf.Tensor:
     """Returns a tuple of normalized image array and hot encoded labels array.
     Args:
@@ -162,14 +115,10 @@ def encoded_labels(
         all_labels: list of all N_LABELS
         model_type: string single_label or multi_label
     """
-    if model_type == single_label:
-        encoder = tf.keras.layers.StringLookup(
-            vocabulary=all_labels, num_oov_indices=0, output_mode="one_hot"
-        )
-    elif model_type == multi_label:
-        encoder = tf.keras.layers.StringLookup(
-            vocabulary=all_labels, num_oov_indices=0, output_mode="multi_hot"
-        )
+
+    encoder = tf.keras.layers.StringLookup(
+        vocabulary=all_labels, num_oov_indices=0, output_mode="one_hot"
+    )
     return encoder(image_labels)
 
 
@@ -177,8 +126,6 @@ def parse_image_and_encode_labels(
     filename: str,
     labels: ty.List[str],
     all_labels: ty.List[str],
-    model_type: str,
-    img_size: ty.Tuple[int, int] = (256, 256),
 ) -> ty.Tuple[tf.Tensor, tf.Tensor]:
     """Returns a tuple of normalized image array and hot encoded labels array.
     Args:
@@ -197,7 +144,7 @@ def parse_image_and_encode_labels(
     )
 
     # Convert string labels to encoded labels
-    labels_encoded = encoded_labels(labels, all_labels, model_type)
+    labels_encoded = encoded_labels(labels, all_labels)
     return image_decoded, labels_encoded
 
 
@@ -205,8 +152,6 @@ def create_dataset(
     filenames,
     labels,
     all_labels,
-    model_type,
-    img_size,
     num_parallel_calls=tf.data.experimental.AUTOTUNE,
 ):
     # Ensure that there is at least one image in the dataset
@@ -218,19 +163,13 @@ def create_dataset(
             f"{len(filenames)} filenames and {len(labels)} labels."
         )
     # Create a first dataset of file paths and labels
-    if model_type == single_label:
-        dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-    elif model_type == multi_label:
-        dataset = tf.data.Dataset.from_tensor_slices(
-            (filenames, tf.ragged.constant(labels))
-        )
-    else:
-        return None, None
+
+    dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
 
     # Apply a map to the dataset that converts filenames and text labels
     # to normalized images and encoded labels, respectively.
     def mapping_fnc(x, y):
-        return parse_image_and_encode_labels(x, y, all_labels, model_type, img_size)
+        return parse_image_and_encode_labels(x, y, all_labels)
 
     # Parse and preprocess observations in parallel
     dataset = dataset.map(mapping_fnc, num_parallel_calls=num_parallel_calls)
@@ -241,8 +180,6 @@ def create_dataset_classification(
     filenames: ty.List[str],
     labels: ty.List[str],
     all_labels: ty.List[str],
-    model_type: str,
-    img_size: ty.Tuple[int, int] = (256, 256),
     train_split: float = 0.8,
     batch_size: int = 64,
     shuffle_buffer_size: int = 1024,
@@ -291,16 +228,12 @@ def create_dataset_classification(
         image_names_ok,
         image_labels_ok,
         all_labels,
-        model_type,
-        img_size,
         num_parallel_calls,
     )
     dataset_nok = create_dataset(
         image_names_nok,
         image_labels_nok,
         all_labels,
-        model_type,
-        img_size,
         num_parallel_calls,
     )
 
@@ -328,12 +261,8 @@ def create_dataset_classification(
         if batch_size < (len(filenames) - train_size)
         else (len(filenames) - train_size)
     )
-    if model_type == single_label:
-        test_dataset = test_dataset.batch(test_batch_size)
-    else:
-        test_dataset = test_dataset.apply(
-            tf.data.experimental.dense_to_ragged_batch(test_batch_size)
-        )
+
+    test_dataset = test_dataset.batch(test_batch_size)
     test_dataset = test_dataset.prefetch(buffer_size=prefetch_buffer_size)
 
     # Batch the data for multiple steps
@@ -341,12 +270,7 @@ def create_dataset_classification(
     # batch the data to expand the dimensions by a length 1 axis.
     # This will ensure that the training data is valid model input
     train_batch_size = batch_size if batch_size < train_size else train_size
-    if model_type == single_label:
-        train_dataset = train_dataset.batch(train_batch_size)
-    else:
-        train_dataset = train_dataset.apply(
-            tf.data.experimental.dense_to_ragged_batch(train_batch_size)
-        )
+    train_dataset = train_dataset.batch(train_batch_size)
 
     # Fetch batches in the background while the model is training.
     train_dataset = train_dataset.prefetch(buffer_size=prefetch_buffer_size)
@@ -540,12 +464,9 @@ def save_model_metrics_classification(
     model_dir: str,
     model: Model,
     test_dataset: tf.data.Dataset,
-    model_type: str,
 ) -> None:
-    if model_type == single_label:
-        monitored_metric_key = "categorical_accuracy"
-    else:
-        monitored_metric_key = "binary_accuracy"
+
+    monitored_metric_key = "categorical_accuracy"
 
     monitored_val = combined_history[monitored_metric_key]
 
@@ -569,31 +490,32 @@ def save_model_metrics_classification(
         json.dump(metrics, f, ensure_ascii=False)
 
 
-def get_callbacks(model_type: str):
-    # Single-label Classification or Multi-label Classification
-    if model_type == single_label or model_type == multi_label:
-        callbackEarlyStopping = tf.keras.callbacks.EarlyStopping(
-            # Stop training when `monitor` value is no longer improving
-            monitor=early_stopping_monitor_val[model_type],
-            # "no longer improving" being defined as "no better than 'min_delta' less"
-            min_delta=1e-3,
-            # "no longer improving" being further defined as "for at least 'patience' epochs"
-            patience=5,
-            # Restore weights from the best performing model, requires keeping track of model weights and performance.
-            restore_best_weights=True,
-        )
-        callbackReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau(
-            # Reduce learning rate when `loss` is no longer improving
-            monitor="loss",
-            # "no longer improving" being defined as "no better than 'min_delta' less"
-            min_delta=1e-3,
-            # "no longer improving" being further defined as "for at least 'patience' epochs"
-            patience=5,
-            # Default lower bound on learning rate
-            min_lr=0,
-        )
-    else:
-        raise ValueError("Invalid model_type: must be single_label or multi_label")
+def get_callbacks():
+    """Returns callbacks for training classification model."""
+    early_stopping_key = "early_stopping"
+    reduce_lr_on_plateau_key = "reduce_lr_on_plateau"
+
+    callbackEarlyStopping = tf.keras.callbacks.EarlyStopping(
+        # Stop training when `monitor` value is no longer improving
+        monitor="categorical_accuracy",
+        # "no longer improving" being defined as "no better than 'min_delta' less"
+        min_delta=1e-3,
+        # "no longer improving" being further defined as "for at least 'patience' epochs"
+        patience=5,
+        # Restore weights from the best performing model, requires keeping track of model weights and performance.
+        restore_best_weights=True,
+    )
+    callbackReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau(
+        # Reduce learning rate when `loss` is no longer improving
+        monitor="loss",
+        # "no longer improving" being defined as "no better than 'min_delta' less"
+        min_delta=1e-3,
+        # "no longer improving" being further defined as "for at least 'patience' epochs"
+        patience=5,
+        # Default lower bound on learning rate
+        min_lr=0,
+    )
+
     return {
         early_stopping_key: callbackEarlyStopping,
         reduce_lr_on_plateau_key: callbackReduceLROnPlateau,
@@ -631,29 +553,15 @@ if __name__ == "__main__":
         else [label for label in labels.strip("'").split()]
     )
 
-    # The model type can be changed based on whether we want the model to output one label per image or multiple labels per image
-    if model_type == "single_label":
-        model_type = single_label
-    elif model_type == "multi_label":
-        model_type = multi_label
-    elif model_type == "" or model_type == None:
-        model_type = single_label
-    else:
-        raise ValueError(
-            "Invalid model_type:",
-            model_type,
-            ", valid inputs are single_label or multi_label",
-        )
     image_filenames, image_labels = parse_filenames_and_labels_from_json(
-        DATA_JSON, LABELS, model_type
+        DATA_JSON,
+        LABELS,
     )
     # Generate 80/20 split for training and validation data
     train_dataset, val_dataset = create_dataset_classification(
         filenames=image_filenames,
         labels=image_labels,
         all_labels=LABELS + [unknown_label],
-        model_type=model_type,
-        img_size=IMG_SIZE,
         train_split=0.8,
         batch_size=GLOBAL_BATCH_SIZE,
         shuffle_buffer_size=SHUFFLE_BUFFER_SIZE,
@@ -664,14 +572,13 @@ if __name__ == "__main__":
     # Build and compile model
     with strategy.scope():
 
+        num_classes = len(LABELS) + 1
+        activation = "softmax"
+        loss = tf.keras.losses.categorical_crossentropy
         metrics_names = (
             tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
             tf.keras.metrics.Precision(name="precision"),
             tf.keras.metrics.Recall(name="recall"),
-        )
-
-        num_classes, activation, _, metrics = get_neural_network_params(
-            len(LABELS) + 1, model_type
         )
 
         # Build model
@@ -695,7 +602,7 @@ if __name__ == "__main__":
         val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
 
         # Get callbacks for training classification
-        callbacks = get_callbacks(model_type=model_type)
+        callbacks = get_callbacks()
 
         # Train the model
         loss_history = model.fit(
@@ -738,7 +645,6 @@ if __name__ == "__main__":
         MODEL_DIR,
         model,
         val_dataset,
-        model_type,
     )
 
     # Save labels.txt file
