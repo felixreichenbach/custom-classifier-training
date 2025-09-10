@@ -648,7 +648,7 @@ if __name__ == "__main__":
     save_model_metrics_classification(
         combined_history,
         MODEL_DIR,
-        my_model,
+        model,
         val_dataset,
     )
 
