@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import typing as ty
+import keras
 import tensorflow as tf
 from keras import Model, callbacks
 import numpy as np
@@ -254,97 +255,11 @@ def create_dataset_classification(
     )
 
     # Finalize the pipelines with shuffling, batching, and prefetching
-    train_dataset = (
-        train_dataset.shuffle(
-            buffer_size=shuffle_buffer_size, reshuffle_each_iteration=True
-        )
-        .batch(batch_size)
-        .prefetch(prefetch_buffer_size)
-    )
-
-    test_dataset = test_dataset.batch(batch_size).prefetch(
-        buffer_size=prefetch_buffer_size
+    train_dataset = train_dataset.shuffle(
+        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=True
     )
 
     return train_dataset, test_dataset
-
-
-#    print("*********** Creating balanced datasets ***********")
-#    image_names_ok = []
-#    image_labels_ok = []
-#    image_names_nok = []
-#    image_labels_nok = []
-#    for i, filename in enumerate(filenames):
-#        # print(labels[i][0])
-#        match labels[i][0]:
-#            case "NOK":
-#                image_names_nok.append(filename)
-#                image_labels_nok.append(labels[i])
-#            case "OK":
-#                image_names_ok.append(filename)
-#                image_labels_ok.append(labels[i])
-#            case _:
-#                print(
-#                    f"Image label did not match: {filename}, removing from dataset or Label is not OK"
-#                )
-#    print(f"Number of images with label NOK: {len(image_names_nok)}")
-#    print(f"Number of labels with NOK: {len(image_labels_nok)}")
-#    print(f"Number of images with label OK: {len(image_names_ok)}")
-#    print(f"Number of labels with OK: {len(image_labels_ok)}")
-#
-#    # Create datasets for each class as otherwise the split may introduce bias towards one class
-#    dataset_ok = create_dataset(
-#        image_names_ok,
-#        image_labels_ok,
-#        all_labels,
-#        num_parallel_calls,
-#    )
-#    dataset_nok = create_dataset(
-#        image_names_nok,
-#        image_labels_nok,
-#        all_labels,
-#        num_parallel_calls,
-#    )
-#
-#    print(f"Length of OK dataset: {len(list(dataset_ok))}")
-#    print(f"Length of NOK dataset: {len(list(dataset_nok))}")
-#
-#    train_size_ok = int(train_split * len(image_names_ok))
-#    train_size_nok = int(train_split * len(image_names_nok))
-#    train_size = train_size_ok + train_size_nok
-#    print(f"Training dataset size: {train_size} images")
-#
-#    train_dataset = dataset_ok.take(train_size_ok)
-#    train_dataset = train_dataset.concatenate(dataset_nok.take(train_size_nok))
-#    test_dataset = dataset_ok.skip(train_size_ok)
-#    test_dataset = test_dataset.concatenate(dataset_nok.skip(train_size_nok))
-#
-#    # Shuffle the data for each buffer size
-#    # Disabling reshuffling ensures items from the training and test set will not get shuffled into each other
-#    train_dataset = train_dataset.shuffle(
-#        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=False
-#    )
-#
-#    test_batch_size = (
-#        batch_size
-#        if batch_size < (len(filenames) - train_size)
-#        else (len(filenames) - train_size)
-#    )
-#
-#    test_dataset = test_dataset.batch(test_batch_size)
-#    test_dataset = test_dataset.prefetch(buffer_size=prefetch_buffer_size)
-#
-#    # Batch the data for multiple steps
-#    # If the size of training data is smaller than the batch size,
-#    # batch the data to expand the dimensions by a length 1 axis.
-#    # This will ensure that the training data is valid model input
-#    train_batch_size = batch_size if batch_size < train_size else train_size
-#    train_dataset = train_dataset.batch(train_batch_size)
-#
-#    # Fetch batches in the background while the model is training.
-#    train_dataset = train_dataset.prefetch(buffer_size=prefetch_buffer_size)
-#
-#    return train_dataset, test_dataset
 
 
 # Build the Keras model
@@ -423,15 +338,17 @@ def create_data_pipeline(
 
     # Preprocessing and normalization function
     def preprocess_image(image, label):
-        image = tf.image.resize(image, image_size)
+        image = keras.layers.CenterCrop(image_size[0], image_size[1])(image)
+        print(f"After cropping: {image.shape}")
+        # image = tf.image.resize(image, image_size)
         return image, label
 
     # Augmentation function for the training set
     def augment_image(image, label):
-        image = tf.image.random_flip_left_right(image)
-        image = tf.image.random_flip_up_down(image)
-        image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
-        image = tf.image.random_brightness(image, max_delta=0.1)
+        # image = tf.image.random_flip_left_right(image)
+        # image = tf.image.random_flip_up_down(image)
+        # image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
+        # image = tf.image.random_brightness(image, max_delta=0.1)
         # Note: You can add more augmentation layers here as needed.
         return image, label
 
@@ -442,7 +359,7 @@ def create_data_pipeline(
     else:
         dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
 
-    return dataset.prefetch(tf.data.AUTOTUNE)
+    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
 def fine_tune_model(my_model: Model) -> Model:
@@ -464,7 +381,7 @@ def fine_tune_model(my_model: Model) -> Model:
     my_model.trainable = True
     for layer in my_model.layers[
         :-3
-    ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30
+    ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30 I would expect this to be higher than three as I add roughly three layers
         layer.trainable = False
     # Recompile the model with a very low learning rate.
     # It's crucial to recompile the model for the changes to the trainable
@@ -640,6 +557,12 @@ if __name__ == "__main__":
         prefetch_buffer_size=AUTOTUNE,
     )
 
+    # Create the data pipelines
+    train_data_pipeline = create_data_pipeline(
+        train_dataset, IMG_SIZE, BATCH_SIZE, is_training=True
+    )
+    val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
+
     # Build and compile model
     with strategy.scope():
 
@@ -666,12 +589,6 @@ if __name__ == "__main__":
 
         print(model.summary())
 
-        # Create the data pipelines
-        train_data_pipeline = create_data_pipeline(
-            train_dataset, IMG_SIZE, BATCH_SIZE, is_training=True
-        )
-        val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
-
         # Get callbacks for training classification
         callbacks = get_callbacks()
 
@@ -686,12 +603,29 @@ if __name__ == "__main__":
         # Fine-tuning the model
         # Prepare the model for fine-tuning by unfreezing layers.
         # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
-        my_model = fine_tune_model(model)  # , fine_tune_from_layer=100)
+        base_model.trainable = False
+
+        for layer in base_model.layers[:-3]:  # Unfreeze last 3 layers
+            layer.trainable = True
+
+        # Recompile the model with a very low learning rate.
+        # It's crucial to recompile the model for the changes to the trainable
+        # state to take effect. Using a low learning rate prevents catastrophic
+        # forgetting of the pre-trained weights.
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+            loss=tf.keras.losses.CategoricalCrossentropy(),
+            metrics=(
+                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+                tf.keras.metrics.Precision(name="precision"),
+                tf.keras.metrics.Recall(name="recall"),
+            ),
+        )
 
         # Print the updated summary to see which layers are now trainable.
-        my_model.summary()
+        model.summary()
 
-        fine_tune_loss_history = my_model.fit(
+        fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
             epochs=EPOCHS + 5,
