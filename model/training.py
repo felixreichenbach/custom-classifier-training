@@ -305,7 +305,7 @@ def build_classification_model(
 
     # Add custom layers on top of the base model
     x = GlobalAveragePooling2D()(x)
-    x = Dropout(dropout_rate)(x)
+    # x = Dropout(dropout_rate)(x)
     outputs = Dense(num_classes, activation=activation, name="output")(x)
 
     # Create the complete model by defining the inputs and outputs.
@@ -345,6 +345,8 @@ def create_data_pipeline(
 
     # Augmentation function for the training set
     def augment_image(image, label):
+        # TODO: use this: https://www.tensorflow.org/guide/keras/preprocessing_layers#image_data_augmentation_2
+        # image = tf.keras.layers.RandomRotation(0.1)(image)
         # image = tf.image.random_flip_left_right(image)
         # image = tf.image.random_flip_up_down(image)
         # image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
@@ -553,14 +555,14 @@ if __name__ == "__main__":
         print(model.summary())
 
         # Get callbacks for training classification
-        callbacks = get_callbacks()
+        my_callbacks = get_callbacks()
 
         # Train the model
         loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
             epochs=EPOCHS,
-            callbacks=callbacks.values(),
+            callbacks=my_callbacks.values(),
         )
 
         # Fine-tuning the model
@@ -586,14 +588,14 @@ if __name__ == "__main__":
         )
 
         # Print the updated summary to see which layers are now trainable.
-        model.summary()
+        print(model.summary())
 
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=EPOCHS + 1,
+            epochs=EPOCHS + EPOCHS,
             initial_epoch=len(loss_history.epoch),
-            callbacks=callbacks.values(),
+            callbacks=my_callbacks.values(),
         )
 
     # Create an empty dictionary to store the combined history
