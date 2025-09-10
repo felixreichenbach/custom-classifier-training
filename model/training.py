@@ -195,20 +195,10 @@ def parse_image_and_encode_labels(
         expand_animations=False,
         dtype=tf.dtypes.uint8,
     )
-    # Print shape, dtype, and filename for debugging
-    # tf.print(
-    #    "DEBUG: image",
-    #    filename,
-    #    "shape",
-    #    tf.shape(image_decoded),
-    #    "dtype",
-    #    image_decoded.dtype,
-    # )
-    # Resize it to fixed shape
-    image_resized = tf.image.resize(image_decoded, [img_size[0], img_size[1]])
+
     # Convert string labels to encoded labels
     labels_encoded = encoded_labels(labels, all_labels, model_type)
-    return image_resized, labels_encoded
+    return image_decoded, labels_encoded
 
 
 def create_dataset(
@@ -339,7 +329,7 @@ def create_dataset_classification(
         else (len(filenames) - train_size)
     )
     if model_type == single_label:
-        test_dataset = test_dataset  # .batch(test_batch_size)
+        test_dataset = test_dataset.batch(test_batch_size)
     else:
         test_dataset = test_dataset.apply(
             tf.data.experimental.dense_to_ragged_batch(test_batch_size)
@@ -352,7 +342,7 @@ def create_dataset_classification(
     # This will ensure that the training data is valid model input
     train_batch_size = batch_size if batch_size < train_size else train_size
     if model_type == single_label:
-        train_dataset = train_dataset  # .batch(train_batch_size)
+        train_dataset = train_dataset.batch(train_batch_size)
     else:
         train_dataset = train_dataset.apply(
             tf.data.experimental.dense_to_ragged_batch(train_batch_size)
@@ -392,6 +382,26 @@ def build_classification_model(
     # Define the input layer with a float32 data type, which is a best practice.
     inputs = Input(shape=input_shape, dtype=tf.float32)
 
+    preprocessing = tf.keras.Sequential(
+        [
+            tf.keras.layers.Resizing(
+                input_shape[0],
+                input_shape[1],
+                crop_to_aspect_ratio=True,  # Changed to True to center crop before resizing
+            ),
+        ]
+    )
+
+    data_augmentation = tf.keras.Sequential(
+        [
+            # tf.keras.layers.RandomFlip(),
+            tf.keras.layers.RandomRotation(0.1),
+            tf.keras.layers.RandomZoom(0.1),
+            # tf.keras.layers.RandomContrast(0.1),
+            # tf.keras.layers.RandomBrightness(0.1),
+        ]
+    )
+
     # Load the pre-trained EfficientNetB0 model without its top layers,
     # and specify the input tensor.
     base_model = EfficientNetB0(
@@ -402,63 +412,34 @@ def build_classification_model(
     # during training. This is a crucial step for transfer learning.
     base_model.trainable = False
 
-    # Build the custom classification head using the Keras Functional API.
-    x = base_model.output
-
+    # Add custom layers
+    global_pooling = tf.keras.layers.GlobalAveragePooling2D()
     # GlobalAveragePooling2D reduces the spatial dimensions of the feature maps,
-    # creating a single feature vector.
-    x = GlobalAveragePooling2D()(x)
 
     # Adding a Dropout layer helps prevent overfitting on the new custom layers.
-    x = Dropout(dropout_rate)(x)
+    dropout = Dropout(dropout_rate)
 
     # The final classification layer. The number of units and activation function
     # are determined by the function arguments.
-    outputs = Dense(num_classes, activation=activation, name="output")(x)
+    classification = Dense(num_classes, activation=activation, name="output")
+
+    outputs = tf.keras.Sequential(
+        [
+            preprocessing,
+            data_augmentation,
+            base_model,
+            global_pooling,
+            dropout,
+            classification,
+        ],
+        name="classification_layers",
+    )(inputs)
+
+    # Build the custom classification head using the Keras Functional API.
+    x = base_model.output
 
     # Create the complete model by defining the inputs and outputs.
     model = Model(inputs=inputs, outputs=outputs)
-
-    # OLD CODE:
-    # x = tf.keras.Input(input_shape, dtype=tf.uint8)
-    ## Data processing
-    # preprocessing = preprocessing_layers_classification(input_shape[:-1])
-    # data_augmentation = tf.keras.Sequential(
-    #    [
-    #        # tf.keras.layers.RandomFlip(),
-    #        tf.keras.layers.RandomRotation(0.1),
-    #        # tf.keras.layers.RandomZoom(0.1),
-    #        tf.keras.layers.RandomContrast(0.1),
-    #        tf.keras.layers.RandomBrightness(0.1),
-    #    ]
-    # )
-    #
-    ## Get the pre-trained model
-    # base_model = tf.keras.applications.EfficientNetB0(
-    #    input_shape=input_shape, include_top=False, weights="imagenet"
-    # )
-    #
-    ## Freeze the weights of the base model. This allows to use transfer learning
-    ## to train only the top layers of the model. Setting the base model to be trainable
-    ## would allow for all layers, not just the top, to be retrained.
-    # base_model.trainable = False
-    ## Add custom layers
-    # global_pooling = tf.keras.layers.GlobalAveragePooling2D()
-    ## Output layer
-    # classification = tf.keras.layers.Dense(units, activation=activation, name="output")
-    #
-    # y = tf.keras.Sequential(
-    #    [
-    #        preprocessing,
-    #        data_augmentation,
-    #        base_model,
-    #        global_pooling,
-    #        classification,
-    #    ],
-    #    name="classification_layers",
-    # )(x)
-    #
-    # model = tf.keras.Model(x, y)
 
     return base_model, model
 
@@ -487,10 +468,7 @@ def create_data_pipeline(
 
     # Preprocessing and normalization function
     def preprocess_image(image, label):
-        # image = tf.image.decode_jpeg(image, channels=3)
         image = tf.image.resize(image, image_size)
-        # Convert to float32 and normalize to [0, 1] as required by EfficientNetB0
-        image = tf.image.convert_image_dtype(image, dtype=tf.float32)
         return image, label
 
     # Augmentation function for the training set
@@ -509,7 +487,7 @@ def create_data_pipeline(
     else:
         dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
 
-    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    return dataset.prefetch(tf.data.AUTOTUNE)
 
 
 def fine_tune_model(base_model: Model) -> Model:
@@ -542,7 +520,7 @@ def fine_tune_model(base_model: Model) -> Model:
             tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
             tf.keras.metrics.Precision(name="precision"),
             tf.keras.metrics.Recall(name="recall"),
-        ),  # ["accuracy"],
+        ),
     )
     return model
 
@@ -780,34 +758,6 @@ if __name__ == "__main__":
             initial_epoch=len(loss_history.epoch),
             callbacks=callbacks.values(),
         )
-
-        # OLD CODE:
-        # Fine tuning by unfreezing some of the base model layers
-        # Unfreeze some layers for fine-tuning
-        # base_model = model.get_layer("classification_layers")
-        # base_model.trainable = True
-
-        # Freeze all layers except for the last 3
-        # for layer in base_model.layers[:-3]:
-        #    layer.trainable = False
-
-        # Re-compile the model with a very low learning rate
-        # model.compile(
-        #    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-        #    loss=model.loss,
-        #    metrics=metrics_names,
-        # )
-
-        # Continue training for a few more epochs with fine-tuning
-        # fine_tune_epochs = 100  # You can adjust this number
-        # total_epochs = EPOCHS + fine_tune_epochs
-
-        #        #fine_tune_loss_history = model.fit(
-        #    x=train_dataset,
-        #    epochs=total_epochs,
-        #    initial_epoch=len(loss_history.epoch),
-        #    callbacks=callbacks.values(),
-        # )
 
     # Create an empty dictionary to store the combined history
     combined_history = {}
