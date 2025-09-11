@@ -10,6 +10,7 @@ import shutil
 from keras.applications import EfficientNetB0
 from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 import keras
+import collections
 
 labels_filename = "labels.txt"
 unknown_label = "UNKNOWN"
@@ -200,80 +201,83 @@ def create_dataset_classification(
         prefetch_buffer_size: optional integer representing the number of batches that will be buffered when prefetching
     """
 
-    print("*********** Creating balanced datasets ***********")
-    image_names_ok = []
-    image_labels_ok = []
-    image_names_nok = []
-    image_labels_nok = []
+    # Group filenames and labels by class
+    class_data = collections.defaultdict(lambda: {"filenames": [], "labels": []})
     for i, filename in enumerate(filenames):
-        # print(labels[i][0])
-        match labels[i][0]:
-            case "NOK":
-                image_names_nok.append(filename)
-                image_labels_nok.append(labels[i])
-            case "OK":
-                image_names_ok.append(filename)
-                image_labels_ok.append(labels[i])
-            case _:
-                print(
-                    f"Image label did not match: {filename}, removing from dataset or Label is not OK"
-                )
-    print(f"Number of images with label NOK: {len(image_names_nok)}")
-    print(f"Number of labels with NOK: {len(image_labels_nok)}")
-    print(f"Number of images with label OK: {len(image_names_ok)}")
-    print(f"Number of labels with OK: {len(image_labels_ok)}")
+        class_label = labels[i][0]
+        if class_label in all_labels:
+            class_data[class_label]["filenames"].append(filename)
+            class_data[class_label]["labels"].append(labels[i])
+        else:
+            print(f"Skipping image with unknown label: {filename}")
 
-    # Create datasets for each class as otherwise the split may introduce bias towards one class
-    dataset_ok = create_dataset(
-        image_names_ok,
-        image_labels_ok,
-        all_labels,
-        num_parallel_calls,
+    # Validate that all labels have data
+    if len(class_data) != len(all_labels):
+        missing_labels = set(all_labels) - set(class_data.keys())
+        print(
+            f"Warning: The following labels are missing from the dataset: {missing_labels}"
+        )
+
+    train_datasets = []
+    test_datasets = []
+
+    # Split each class's data and create a separate dataset for it
+    for label, data in class_data.items():
+        if not data["filenames"]:
+            continue
+
+        # Calculate split sizes
+        dataset_size = len(data["filenames"])
+        train_size = int(train_split * dataset_size)
+
+        # Shuffle the filenames and labels together to maintain correspondence
+        combined = list(zip(data["filenames"], data["labels"]))
+        np.random.shuffle(combined)
+        shuffled_filenames, shuffled_labels = zip(*combined)
+
+        # Create and split datasets for this specific class
+        class_dataset = tf.data.Dataset.from_tensor_slices(
+            (list(shuffled_filenames), list(shuffled_labels))
+        )
+
+        # Apply the mapping function to parse images and encode labels
+        class_dataset = class_dataset.map(
+            lambda x, y: parse_image_and_encode_labels(x, y, all_labels),
+            num_parallel_calls=num_parallel_calls,
+        )
+
+        train_datasets.append(class_dataset.take(train_size))
+        test_datasets.append(class_dataset.skip(train_size))
+
+        print(
+            f"Split for class '{label}': {train_size} training, {dataset_size - train_size} testing"
+        )
+
+    # Concatenate all class-specific datasets to form the final balanced datasets
+    if not train_datasets or not test_datasets:
+        raise ValueError(
+            "Training or testing dataset is empty. Check your data and labels."
+        )
+
+    train_dataset = train_datasets[0]
+    for ds in train_datasets[1:]:
+        train_dataset = train_dataset.concatenate(ds)
+
+    test_dataset = test_datasets[0]
+    for ds in test_datasets[1:]:
+        test_dataset = test_dataset.concatenate(ds)
+
+    print(
+        f"Total training dataset size: {len(list(train_dataset.as_numpy_iterator()))} images"
     )
-    dataset_nok = create_dataset(
-        image_names_nok,
-        image_labels_nok,
-        all_labels,
-        num_parallel_calls,
+    print(
+        f"Total testing dataset size: {len(list(test_dataset.as_numpy_iterator()))} images"
     )
 
-    print(f"Length of OK dataset: {len(list(dataset_ok))}")
-    print(f"Length of NOK dataset: {len(list(dataset_nok))}")
-
-    train_size_ok = int(train_split * len(image_names_ok))
-    train_size_nok = int(train_split * len(image_names_nok))
-    train_size = train_size_ok + train_size_nok
-    print(f"Training dataset size: {train_size} images")
-
-    train_dataset = dataset_ok.take(train_size_ok)
-    train_dataset = train_dataset.concatenate(dataset_nok.take(train_size_nok))
-    test_dataset = dataset_ok.skip(train_size_ok)
-    test_dataset = test_dataset.concatenate(dataset_nok.skip(train_size_nok))
-
-    # Shuffle the data for each buffer size
-    # Disabling reshuffling ensures items from the training and test set will not get shuffled into each other
+    # Finalize the pipelines with shuffling, batching, and prefetching
     train_dataset = train_dataset.shuffle(
-        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=False
+        buffer_size=shuffle_buffer_size, reshuffle_each_iteration=True
     )
-
-    test_batch_size = (
-        batch_size
-        if batch_size < (len(filenames) - train_size)
-        else (len(filenames) - train_size)
-    )
-
-    test_dataset = test_dataset.batch(test_batch_size)
-    test_dataset = test_dataset.prefetch(buffer_size=prefetch_buffer_size)
-
-    # Batch the data for multiple steps
-    # If the size of training data is smaller than the batch size,
-    # batch the data to expand the dimensions by a length 1 axis.
-    # This will ensure that the training data is valid model input
-    train_batch_size = batch_size if batch_size < train_size else train_size
-    train_dataset = train_dataset.batch(train_batch_size)
-
-    # Fetch batches in the background while the model is training.
-    train_dataset = train_dataset.prefetch(buffer_size=prefetch_buffer_size)
 
     return train_dataset, test_dataset
 
