@@ -5,7 +5,6 @@ import sys
 import typing as ty
 import tensorflow as tf
 import numpy as np
-import shutil
 from keras.applications import EfficientNetB0
 from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
 import keras
@@ -78,31 +77,6 @@ def parse_filenames_and_labels_from_json(
                     labels = [annotation["annotation_label"]]
             image_labels.append(labels)
     return image_filenames, image_labels
-
-
-def save_jsonl(model_dir: str, filename: str) -> None:
-    """Copies the JSONLines file to the specified model directory."""
-    dest = os.path.join(model_dir, "parsed_json_lines.jsonl")
-    shutil.copyfile(filename, dest)
-
-
-def preprocessing_layers_classification(
-    img_size: ty.Tuple[int, int] = (256, 256)
-) -> ty.Tuple[tf.Tensor, tf.Tensor]:
-    """Preprocessing steps to apply to all images passed through the model.
-    Args:
-        img_size: optional 2D shape of image
-    """
-    preprocessing = tf.keras.Sequential(
-        [
-            tf.keras.layers.Resizing(
-                img_size[0],
-                img_size[1],
-                crop_to_aspect_ratio=True,  # Changed to True to center crop before resizing
-            ),
-        ]
-    )
-    return preprocessing
 
 
 def encoded_labels(
@@ -335,7 +309,7 @@ def create_data_pipeline(
             keras.layers.Resizing(
                 image_size[0], image_size[1], crop_to_aspect_ratio=True
             ),
-            # keras.layers.Rescaling(1.0 / 255), -> Handled in TFLite model afaik
+            # keras.layers.Rescaling(1.0 / 255), -> Handled in base model afaik
         ]
     )
 
@@ -392,17 +366,11 @@ def save_tflite_classification(
         model_name: name of saved model
         target_shape: desired output shape of predictions from model
     """
-    # Convert the model to tflite, with batch size 1 so the graph does not have dynamic-sized tensors.
-    # input = keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
-    # output = model(input, training=False)
-    # wrapped_model = keras.Model(inputs=input, outputs=output)
 
-    ## Working without TFLite-Support
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.target_spec.supported_ops = TFLITE_OPS
     tflite_model = converter.convert()
     filename = os.path.join(model_dir, f"{model_name}.tflite")
-    # Writing the model buffer into a file.
     with open(filename, "wb") as f:
         f.write(tflite_model)
 
@@ -616,5 +584,3 @@ if __name__ == "__main__":
     save_labels(LABELS + [unknown_label], MODEL_DIR)
     # Convert the model to tflite
     save_tflite_classification(model, MODEL_DIR, "model")
-
-    save_jsonl(MODEL_DIR, DATA_JSON)
