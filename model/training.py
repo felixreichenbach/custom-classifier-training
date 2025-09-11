@@ -4,7 +4,6 @@ import os
 import sys
 import typing as ty
 import tensorflow as tf
-from keras import Model, callbacks
 import numpy as np
 import shutil
 from keras.applications import EfficientNetB0
@@ -260,7 +259,7 @@ def build_classification_model(
     num_classes: int,
     activation: str,
     dropout_rate: float = 0.2,
-) -> Model:
+) -> keras.Model:
     """
     Builds and compiles a classification model for fine-tuning using EfficientNetB0.
 
@@ -278,9 +277,10 @@ def build_classification_model(
     Returns:
         A compiled Keras Model ready for training.
     """
+    # Keras EfficientNetB0: https://keras.io/examples/vision/image_classification_efficientnet_fine_tuning/
 
-    # Define the input layer with a float32 data type, which is a best practice.
-    inputs = Input(shape=input_shape)
+    # Define the input layer
+    inputs = Input(shape=(224, 224, 3))
 
     # Load the pre-trained EfficientNetB0 model without its top layers,
     # and specify the input tensor.
@@ -298,10 +298,14 @@ def build_classification_model(
     # Add custom layers on top of the base model
     x = GlobalAveragePooling2D()(x)
     x = Dropout(dropout_rate)(x)
+
+    # TODO: Additional dense layer required?
+    # x = Dense(128, activation="relu")(x)
+
     outputs = Dense(num_classes, activation=activation, name="output")(x)
 
     # Create the complete model by defining the inputs and outputs.
-    model = Model(inputs=base_model.input, outputs=outputs)
+    model = keras.Model(inputs=base_model.input, outputs=outputs)
 
     return base_model, model
 
@@ -365,7 +369,7 @@ def create_data_pipeline(
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def fine_tune_model(my_model: Model) -> Model:
+def fine_tune_model(my_model: keras.Model) -> keras.Model:
     """
     Prepares a pre-trained model for fine-tuning by unfreezing layers.
 
@@ -416,7 +420,7 @@ def save_labels(labels: ty.List[str], model_dir: str) -> None:
 
 
 def save_tflite_classification(
-    model: Model,
+    model: keras.Model,
     model_dir: str,
     model_name: str,
     target_shape: ty.Tuple[int, int, int],
@@ -429,9 +433,9 @@ def save_tflite_classification(
         target_shape: desired output shape of predictions from model
     """
     # Convert the model to tflite, with batch size 1 so the graph does not have dynamic-sized tensors.
-    input = tf.keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
+    input = keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
     output = model(input, training=False)
-    wrapped_model = tf.keras.Model(inputs=input, outputs=output)
+    wrapped_model = keras.Model(inputs=input, outputs=output)
 
     ## Working without TFLite-Support
     converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
@@ -453,7 +457,7 @@ def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
 def save_model_metrics_classification(
     combined_history: dict,
     model_dir: str,
-    model: Model,
+    model: keras.Model,
     data_pipeline: tf.data.Dataset,
 ) -> None:
 
@@ -520,7 +524,7 @@ if __name__ == "__main__":
     else:
         strategy = tf.distribute.OneDeviceStrategy(device="/cpu:0")
 
-    IMG_SIZE = (256, 256)
+    IMG_SIZE = (224, 224)
     # Batch size, buffer size, epochs can be adjusted according to the training job.
     BATCH_SIZE = 16
     SHUFFLE_BUFFER_SIZE = 32
@@ -597,7 +601,7 @@ if __name__ == "__main__":
         loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=EPOCHS,
+            epochs=1,
             callbacks=callbacks.values(),
         )
 
@@ -605,9 +609,6 @@ if __name__ == "__main__":
         # Prepare the model for fine-tuning by unfreezing layers.
         # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
         my_model = fine_tune_model(model)  # , fine_tune_from_layer=100)
-
-        # Print the updated summary to see which layers are now trainable.
-        my_model.summary()
 
         fine_tune_loss_history = my_model.fit(
             train_data_pipeline,
