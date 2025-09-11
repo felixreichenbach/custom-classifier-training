@@ -367,43 +367,6 @@ def create_data_pipeline(
     return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
-def fine_tune_model(my_model: keras.Model) -> keras.Model:
-    """
-    Prepares a pre-trained model for fine-tuning by unfreezing layers.
-
-    Args:
-        model: The Keras Model to fine-tune. This model should have a frozen
-               base model as a layer.
-        fine_tune_from_layer: The index of the layer in the base model from
-                              which to begin unfreezing. All layers with an
-                              index greater than or equal to this will be
-                              unfrozen.
-
-    Returns:
-        The recompiled Keras Model ready for the fine-tuning stage.
-    """
-
-    # my_model.trainable = True
-    # for layer in my_model.layers[
-    #    :-3
-    # ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30
-    #    layer.trainable = False
-    # Recompile the model with a very low learning rate.
-    # It's crucial to recompile the model for the changes to the trainable
-    # state to take effect. Using a low learning rate prevents catastrophic
-    # forgetting of the pre-trained weights.
-    my_model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
-        loss=tf.keras.losses.CategoricalCrossentropy(),
-        metrics=(
-            tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-            tf.keras.metrics.Precision(name="precision"),
-            tf.keras.metrics.Recall(name="recall"),
-        ),
-    )
-    return my_model
-
-
 def save_labels(labels: ty.List[str], model_dir: str) -> None:
     """Saves a label.txt of output labels to the specified model directory.
     Args:
@@ -421,7 +384,6 @@ def save_tflite_classification(
     model: keras.Model,
     model_dir: str,
     model_name: str,
-    target_shape: ty.Tuple[int, int, int],
 ) -> None:
     """Save model as a TFLite model.
     Args:
@@ -431,12 +393,12 @@ def save_tflite_classification(
         target_shape: desired output shape of predictions from model
     """
     # Convert the model to tflite, with batch size 1 so the graph does not have dynamic-sized tensors.
-    input = keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
-    output = model(input, training=False)
-    wrapped_model = keras.Model(inputs=input, outputs=output)
+    # input = keras.Input(target_shape, batch_size=1, dtype=tf.uint8)
+    # output = model(input, training=False)
+    # wrapped_model = keras.Model(inputs=input, outputs=output)
 
     ## Working without TFLite-Support
-    converter = tf.lite.TFLiteConverter.from_keras_model(wrapped_model)
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.target_spec.supported_ops = TFLITE_OPS
     tflite_model = converter.convert()
     filename = os.path.join(model_dir, f"{model_name}.tflite")
@@ -649,6 +611,6 @@ if __name__ == "__main__":
     # Save labels.txt file
     save_labels(LABELS + [unknown_label], MODEL_DIR)
     # Convert the model to tflite
-    save_tflite_classification(model, MODEL_DIR, "model", (*IMG_SIZE, 3))
+    save_tflite_classification(model, MODEL_DIR, "model")
 
     save_jsonl(MODEL_DIR, DATA_JSON)

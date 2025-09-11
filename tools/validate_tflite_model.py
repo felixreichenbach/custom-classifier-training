@@ -127,7 +127,7 @@ def load_tflite_model(model_path):
 def run_inference(
     interpreter: tf.lite.Interpreter, input_details, output_details, img_array
 ):
-    # img_array = img_array.astype(np.uint8)
+    img_array = img_array.astype(np.float32)
     interpreter.set_tensor(input_details[0]["index"], img_array)
     interpreter.invoke()
     output_data = interpreter.get_tensor(output_details[0]["index"])
@@ -174,7 +174,7 @@ def preprocess_image(image_path, input_shape):
     img_array = np.array(img)
     if np.any(img_array < 0) or np.any(img_array > 255):
         raise ValueError("Image pixel values are out of uint8 range (0-255).")
-    img_array = img_array.astype(np.uint8)
+    # img_array = img_array.astype(np.uint8)
     # If img_array originally has shape (height, width, channels), after this operation, its shape becomes (1, height, width, channels).
     # Many machine learning models (especially TensorFlow Lite models) expect input data to have a batch dimension, even if you’re only passing one image.
     # Adding this dimension makes the array compatible with model input requirements.
