@@ -271,7 +271,6 @@ def create_dataset_classification(
 
 # Build the Keras model
 def build_classification_model(
-    input_shape: ty.Tuple[int, int, int],
     num_classes: int,
     activation: str,
     dropout_rate: float = 0.2,
@@ -283,7 +282,6 @@ def build_classification_model(
     separate data pipeline that handles preprocessing and augmentation.
 
     Args:
-        input_shape: A tuple representing the shape of the input images, e.g., (224, 224, 3).
         num_classes: The number of classes for the classification task. This determines the
                      number of units in the final output layer.
         activation: The activation function for the final output layer. For multi-class
@@ -291,11 +289,11 @@ def build_classification_model(
         dropout_rate: The dropout rate for the regularization layer. A value between 0 and 1.
 
     Returns:
-        A compiled Keras Model ready for training.
+        A Keras Model ready for compilation.
     """
 
     # Define the input layer with a float32 data type, which is a best practice.
-    inputs = Input(shape=input_shape)
+    inputs = Input(shape=(224, 224, 3))
 
     # Load the pre-trained EfficientNetB0 model without its top layers,
     # and specify the input tensor.
@@ -304,7 +302,7 @@ def build_classification_model(
     )
 
     # Freeze the weights of the base model to prevent them from being updated
-    # during training. This is a crucial step for transfer learning.
+    # during training.
     base_model.trainable = False
 
     # Build the custom classification head using the Keras Functional API.
@@ -312,12 +310,43 @@ def build_classification_model(
 
     # Add custom layers on top of the base model
     x = GlobalAveragePooling2D()(x)
-    # x = Dropout(dropout_rate)(x)
+    x = Dropout(dropout_rate)(x)
+
+    x = Dense(128, activation="relu")(x)
+
     outputs = Dense(num_classes, activation=activation, name="output")(x)
 
     # Create the complete model by defining the inputs and outputs.
     model = keras.Model(inputs=base_model.input, outputs=outputs)
+
     return base_model, model
+
+
+def unfreeze_and_fine_tune_model(
+    model: keras.Model,
+    num_unfrozen_layers: int,
+    fine_tune_learning_rate: float,
+    metrics_names: list,
+) -> keras.Model:
+    """
+    Unfreezes the specified number of top layers of the base model
+    and recompiles the entire model for fine-tuning.
+
+    Args:
+        model: The compiled Keras model.
+        num_unfrozen_layers: The number of top layers in the base model to unfreeze.
+        fine_tune_learning_rate: The learning rate for the fine-tuning phase.
+        metrics_names: A list of metric names to track during training.
+    """
+    # Unfreeze the base model
+    base_model = model.layers[1]
+    base_model.trainable = True
+
+    # Freeze all layers except the top `num_unfrozen_layers`
+    for layer in base_model.layers[:-num_unfrozen_layers]:
+        layer.trainable = False
+
+    return model
 
 
 def create_data_pipeline(
@@ -347,13 +376,13 @@ def create_data_pipeline(
             keras.layers.Resizing(
                 image_size[0], image_size[1], crop_to_aspect_ratio=True
             ),
-            keras.layers.Rescaling(1.0 / 255),
+            # keras.layers.Rescaling(1.0 / 255), -> Handled in TFLite model afaik
         ]
     )
 
     augmentation_pipeline = keras.Sequential(
         [
-            # keras.layers.RandomRotation(0.1),
+            keras.layers.RandomRotation(0.1),
             # keras.layers.RandomFlip("horizontal_and_vertical"),
             # keras.layers.RandomContrast(0.1),
             # keras.layers.RandomBrightness(0.1),
@@ -475,7 +504,7 @@ def get_callbacks():
     )
     callbackReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau(
         # Reduce learning rate when `loss` is no longer improving
-        monitor="loss",
+        monitor="val_loss",
         # "no longer improving" being defined as "no better than 'min_delta' less"
         min_delta=1e-3,
         # "no longer improving" being further defined as "for at least 'patience' epochs"
@@ -558,18 +587,21 @@ if __name__ == "__main__":
             ]
         else:
             # Multi-class classification
-            num_classes = len(LABELS)
-            activation = "softmax"
-            loss = tf.keras.losses.categorical_crossentropy
-            metrics_names = [
-                tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
-                tf.keras.metrics.Precision(name="precision"),
-                tf.keras.metrics.Recall(name="recall"),
-            ]
+            # num_classes = len(LABELS)
+            # activation = "softmax"
+            # loss = tf.keras.losses.categorical_crossentropy
+            # metrics_names = [
+            #    tf.keras.metrics.CategoricalAccuracy(name="categorical_accuracy"),
+            #    tf.keras.metrics.Precision(name="precision"),
+            #    tf.keras.metrics.Recall(name="recall"),
+            # ]
+            raise NotImplementedError(
+                "Multi-class classification is not implemented yet."
+            )
 
         # Build model
         base_model, model = build_classification_model(
-            (*IMG_SIZE, 3), num_classes, activation=activation
+            num_classes, activation=activation
         )
 
         # Compile model
@@ -578,8 +610,6 @@ if __name__ == "__main__":
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
             metrics=metrics_names,
         )
-
-        # print(model.summary())
 
         # Get callbacks for training classification
         my_callbacks = get_callbacks()
@@ -593,19 +623,20 @@ if __name__ == "__main__":
         )
 
         # Fine-tuning the model
-        # Prepare the model for fine-tuning by unfreezing layers.
-        # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
-        base_model.trainable = False
 
-        for layer in base_model.layers[-1:]:  # Unfreeze last 3 layers
-            layer.trainable = True
+        model = unfreeze_and_fine_tune_model(
+            model,
+            num_unfrozen_layers=3,
+            fine_tune_learning_rate=1e-4,
+            metrics_names=metrics_names,
+        )
 
         # Recompile the model with a very low learning rate.
         # It's crucial to recompile the model for the changes to the trainable
         # state to take effect. Using a low learning rate prevents catastrophic
         # forgetting of the pre-trained weights.
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=loss,
             metrics=metrics_names,
         )
