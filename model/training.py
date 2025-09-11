@@ -9,6 +9,7 @@ import numpy as np
 import shutil
 from keras.applications import EfficientNetB0
 from keras.layers import GlobalAveragePooling2D, Dense, Dropout, Input
+import keras
 
 labels_filename = "labels.txt"
 unknown_label = "UNKNOWN"
@@ -365,14 +366,41 @@ def create_data_pipeline(
         # Note: You can add more augmentation layers here as needed.
         return image, label
 
+    preprocessing_pipeline = keras.Sequential(
+        [
+            keras.layers.Resizing(
+                image_size[0], image_size[1], crop_to_aspect_ratio=True
+            ),
+            # keras.layers.Rescaling(1.0 / 255), -> Handled in TFLite model afaik
+        ]
+    )
+
+    augmentation_pipeline = keras.Sequential(
+        [
+            keras.layers.RandomRotation(0.1),
+            # keras.layers.RandomFlip("horizontal_and_vertical"),
+            # keras.layers.RandomContrast(0.1),
+            # keras.layers.RandomBrightness(0.1),
+        ]
+    )
+
     # Create the pipeline
     if is_training:
-        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
-        dataset = dataset.map(augment_image, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x, y: (preprocessing_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
+        dataset = dataset.map(
+            lambda x, y: (augmentation_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
     else:
-        dataset = dataset.map(preprocess_image, num_parallel_calls=tf.data.AUTOTUNE)
+        dataset = dataset.map(
+            lambda x, y: (preprocessing_pipeline(x), y),
+            num_parallel_calls=tf.data.AUTOTUNE,
+        )
 
-    return dataset.prefetch(tf.data.AUTOTUNE)
+    return dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
 
 
 def fine_tune_model(my_model: Model) -> Model:
