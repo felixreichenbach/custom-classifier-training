@@ -323,10 +323,8 @@ def build_classification_model(
 
 
 def unfreeze_and_fine_tune_model(
-    model: keras.Model,
+    base_model: keras.Model,
     num_unfrozen_layers: int,
-    fine_tune_learning_rate: float,
-    metrics_names: list,
 ) -> keras.Model:
     """
     Unfreezes the specified number of top layers of the base model
@@ -339,7 +337,7 @@ def unfreeze_and_fine_tune_model(
         metrics_names: A list of metric names to track during training.
     """
     # Unfreeze the base model
-    base_model = model.layers[1]
+    # base_model = model.get_layer(name="efficientnetb0")
     base_model.trainable = True
 
     # Freeze all layers except the top `num_unfrozen_layers`
@@ -457,26 +455,26 @@ def get_rounded_number(val: tf.Tensor, rounding_digits: int) -> tf.Tensor:
 
 
 def save_model_metrics_classification(
-    combined_history: dict,
+    history: dict,
     model_dir: str,
     model: keras.Model,
-    test_dataset: tf.data.Dataset,
+    val_data_pipeline: tf.data.Dataset,
 ) -> None:
 
-    monitored_metric_key = "categorical_accuracy"
+    monitored_metric_key = "binary_accuracy"
 
-    monitored_val = combined_history[monitored_metric_key]
+    monitored_val = history[monitored_metric_key]
 
     # Find the index of the best value
     monitored_metric_max_idx = len(monitored_val) - np.argmax(monitored_val[::-1]) - 1
 
-    test_metrics = model.evaluate(test_dataset)
+    test_metrics = model.evaluate(val_data_pipeline)
 
     metrics = {}
     for i, key in enumerate(model.metrics_names):
         # Access metrics directly from the dictionary
         metrics["train_" + key] = get_rounded_number(
-            combined_history[key][monitored_metric_max_idx],
+            history[key][monitored_metric_max_idx],
             ROUNDING_DIGITS,
         )
         metrics["test_" + key] = get_rounded_number(test_metrics[i], ROUNDING_DIGITS)
@@ -623,13 +621,17 @@ if __name__ == "__main__":
         )
 
         # Fine-tuning the model
+        # Unfreeze the base model
+        base_model.trainable = True
 
-        model = unfreeze_and_fine_tune_model(
-            model,
-            num_unfrozen_layers=3,
-            fine_tune_learning_rate=1e-4,
-            metrics_names=metrics_names,
-        )
+        # Freeze all layers except the top `num_unfrozen_layers`
+        for layer in base_model.layers[:-10]:
+            layer.trainable = False
+
+        for layer in model.layers:
+            print(f"{layer.name}: trainable={layer.trainable}")
+
+        # model.summary(show_trainable=True)
 
         # Recompile the model with a very low learning rate.
         # It's crucial to recompile the model for the changes to the trainable
@@ -640,9 +642,6 @@ if __name__ == "__main__":
             loss=loss,
             metrics=metrics_names,
         )
-
-        # Print the updated summary to see which layers are now trainable.
-        # print(model.summary())
 
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
@@ -663,13 +662,13 @@ if __name__ == "__main__":
             loss_history.history[key] + fine_tune_loss_history.history[key]
         )
 
-    ## Save trained model metrics to JSON file
-    # save_model_metrics_classification(
-    #    combined_history,
-    #    MODEL_DIR,
-    #    model,
-    #    val_dataset,
-    # )
+    # Save trained model metrics to JSON file
+    save_model_metrics_classification(
+        combined_history,
+        MODEL_DIR,
+        model,
+        val_data_pipeline=val_data_pipeline,
+    )
 
     # Save labels.txt file
     save_labels(LABELS, MODEL_DIR)
