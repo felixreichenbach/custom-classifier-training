@@ -1,7 +1,30 @@
-def save_prediction_scores(filenames, y_true, y_probs, output_dir):
-    # Save a CSV with filename, true label, and predicted probability
-    import csv
+import argparse
+import json
+import os
+import sys
+import typing as ty
+import tensorflow as tf
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    confusion_matrix,
+    ConfusionMatrixDisplay,
+)
+from collections import defaultdict
+import matplotlib.pyplot as plt
+import csv
 
+labels_filename = "labels.txt"
+metrics_filename = "validation_metrics.json"
+
+ROUNDING_DIGITS = 5
+
+
+def save_prediction_scores(filenames, y_true, y_probs, output_dir):
+    """Save a CSV with filename, true label, and predicted probability."""
     os.makedirs(output_dir, exist_ok=True)
     out_path = os.path.join(output_dir, "prediction_scores.csv")
     with open(out_path, "w", newline="") as csvfile:
@@ -13,10 +36,7 @@ def save_prediction_scores(filenames, y_true, y_probs, output_dir):
 
 
 def plot_f1_vs_threshold(y_true, y_probs, output_dir):
-    import numpy as np
-    import matplotlib.pyplot as plt
-    from sklearn.metrics import f1_score
-
+    """Plot F1 score vs. threshold for binary classification."""
     thresholds = np.arange(0, 1.01, 0.01)
     f1s = [f1_score(y_true, y_probs > t) for t in thresholds]
     best_idx = np.argmax(f1s)
@@ -40,31 +60,6 @@ def plot_f1_vs_threshold(y_true, y_probs, output_dir):
     plt.savefig(plot_path)
     plt.close()
     print(f"F1 vs. threshold plot saved to {plot_path}")
-
-
-import argparse
-import json
-import os
-import sys
-import typing as ty
-import tensorflow as tf
-import numpy as np
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    confusion_matrix,
-    ConfusionMatrixDisplay,
-)
-from collections import defaultdict
-import matplotlib.pyplot as plt
-
-
-labels_filename = "labels.txt"
-metrics_filename = "validation_metrics.json"
-
-ROUNDING_DIGITS = 5
 
 
 def parse_args(args):
@@ -116,25 +111,6 @@ def parse_filenames_and_labels_from_json(
     return image_filenames, image_labels
 
 
-def preprocess_image(filename: str, image_size: ty.Tuple[int, int]) -> np.ndarray:
-    """
-    Reads, decodes, and preprocesses an image to the format expected by the model.
-    """
-    image_bytes = tf.io.read_file(filename)
-    image_decoded = tf.image.decode_image(
-        image_bytes,
-        channels=3,
-        expand_animations=False,
-        dtype=tf.dtypes.uint8,
-    )
-    image_resized = tf.image.resize(image_decoded, image_size)
-    image_np = image_resized.numpy()
-    # Normalize the image data to be in the range [0, 1] as expected by the model.
-    # The training script's base model (EfficientNetB0) expects input in this range.
-    image_np = image_np / 255.0  # Assumes float32 conversion is needed
-    return image_np.astype(np.float32)
-
-
 def get_rounded_number(val: float) -> float:
     """Rounds a number and handles NaN/Inf values."""
     if np.isnan(val) or np.isinf(val):
@@ -165,6 +141,53 @@ def save_confusion_matrix(y_true, y_pred, labels, output_dir):
     print(f"Confusion matrix saved to {cm_path}")
 
 
+def preprocess_image(filename: str, image_size: ty.Tuple[int, int]) -> np.ndarray:
+    """
+    Reads, decodes, and preprocesses an image to the format expected by the model.
+    This is based on the preprocessing for EfficientNetB0, which is commonly used.
+    """
+
+    """Crops an image to a centered square using TensorFlow."""
+    # Read and decode the image
+    image_bytes = tf.io.read_file(filename)
+    image = tf.io.decode_image(image_bytes, channels=3)
+
+    # Convert to float for calculations
+    image_float = tf.cast(image, tf.float32)
+
+    # Get the original image dimensions
+    original_height = tf.shape(image_float)[0]
+    original_width = tf.shape(image_float)[1]
+
+    # Determine the size of the largest possible square crop
+    crop_size = tf.minimum(original_height, original_width)
+
+    # Calculate the starting coordinates for the centered crop
+    offset_height = (original_height - crop_size) // 2
+    offset_width = (original_width - crop_size) // 2
+
+    # Perform the crop using explicit bounding box coordinates
+    cropped_image = tf.image.crop_to_bounding_box(
+        image_float,
+        offset_height=offset_height,
+        offset_width=offset_width,
+        target_height=crop_size,
+        target_width=crop_size,
+    )
+
+    # Resize the cropped square to the target image_size
+    resized_image = tf.image.resize(cropped_image, image_size)
+
+    # Save the preprocessed image to disk for inspection
+    debug_dir = os.path.join(os.path.dirname(filename), "debug_preprocessed")
+    os.makedirs(debug_dir, exist_ok=True)
+    debug_path = os.path.join(debug_dir, os.path.basename(filename))
+    tf.keras.utils.save_img(debug_path, resized_image)
+    print(f"Preprocessed image saved to {debug_path}")
+    resized_image = tf.cast(resized_image, tf.float32)
+    return resized_image.numpy()
+
+
 if __name__ == "__main__":
     DATA_JSON, MODEL_DIR, OUTPUT_DIR = parse_args(sys.argv[1:])
 
@@ -180,6 +203,7 @@ if __name__ == "__main__":
     output_details = interpreter.get_output_details()
     input_shape = input_details[0]["shape"]
     IMG_SIZE = (input_shape[1], input_shape[2])
+    print(f"image input size: {IMG_SIZE}")
     print(f"TFLite model loaded with input shape: {input_shape}")
     print(f"Labels loaded: {labels}")
 
@@ -199,7 +223,6 @@ if __name__ == "__main__":
         raise ValueError("No valid images found in the dataset for evaluation.")
 
     filenames, true_labels = zip(*valid_data)
-
     print(f"Loaded {len(filenames)} images for validation.")
 
     # Create integer encoder for labels
@@ -208,49 +231,35 @@ if __name__ == "__main__":
 
     # 3. Perform inference and collect predictions
     predicted_labels = []
-    predicted_probs = []  # For binary classification: store sigmoid outputs
+    predicted_probs = []
 
-    for i, filename in enumerate(filenames):
+    for filename in filenames:
         try:
-            # Preprocess the image
             image = preprocess_image(filename, IMG_SIZE)
-
-            # Set the tensor and invoke the interpreter
             interpreter.set_tensor(
                 input_details[0]["index"], np.expand_dims(image, axis=0)
             )
             interpreter.invoke()
-
-            # Get the output tensor
             output_data = interpreter.get_tensor(output_details[0]["index"])
 
             if len(labels) == 2:  # Binary classification
                 prob = float(output_data[0][0])
                 predicted_probs.append(prob)
-                prediction = prob > 0.5
-                predicted_label_index = int(prediction)
+                predicted_label_index = int(prob > 0.62)
             else:  # Multi-class classification
                 predicted_label_index = int(np.argmax(output_data))
+
             predicted_labels.append(predicted_label_index)
         except Exception as e:
             print(f"Error processing image {filename}: {e}")
-            predicted_labels.append(-1)  # Use -1 for a failed prediction
+            predicted_labels.append(-1)
             if len(labels) == 2:
                 predicted_probs.append(0.0)
 
-    # Filter out failed predictions before calculating metrics
-    filtered_true_labels = [
-        true_labels_encoded[i] for i, pred in enumerate(predicted_labels) if pred != -1
-    ]
-    filtered_predicted_labels = [pred for pred in predicted_labels if pred != -1]
-    filtered_predicted_probs = (
-        [predicted_probs[i] for i, pred in enumerate(predicted_labels) if pred != -1]
-        if len(labels) == 2
-        else None
-    )
-    filtered_filenames = [
-        filenames[i] for i, pred in enumerate(predicted_labels) if pred != -1
-    ]
+    # Filter out failed predictions
+    valid_indices = [i for i, pred in enumerate(predicted_labels) if pred != -1]
+    filtered_true_labels = [true_labels_encoded[i] for i in valid_indices]
+    filtered_predicted_labels = [predicted_labels[i] for i in valid_indices]
 
     if not filtered_true_labels:
         print("No successful predictions were made. Cannot calculate metrics.")
@@ -260,13 +269,15 @@ if __name__ == "__main__":
     metrics = {}
 
     if len(labels) == 2:  # Binary Classification
-        # Save all prediction scores for further analysis
+        filtered_predicted_probs = [predicted_probs[i] for i in valid_indices]
+
         save_prediction_scores(
-            filtered_filenames,
+            [filenames[i] for i in valid_indices],
             filtered_true_labels,
             filtered_predicted_probs,
             OUTPUT_DIR,
         )
+
         metrics["accuracy"] = get_rounded_number(
             accuracy_score(filtered_true_labels, filtered_predicted_labels)
         )
@@ -279,7 +290,7 @@ if __name__ == "__main__":
         metrics["f1_score"] = get_rounded_number(
             f1_score(filtered_true_labels, filtered_predicted_labels)
         )
-        # Plot F1 vs. threshold
+
         plot_f1_vs_threshold(
             np.array(filtered_true_labels),
             np.array(filtered_predicted_probs),
@@ -290,7 +301,6 @@ if __name__ == "__main__":
         metrics["accuracy"] = get_rounded_number(
             accuracy_score(filtered_true_labels, filtered_predicted_labels)
         )
-        # Use average='weighted' for multi-class to account for label imbalance
         metrics["precision"] = get_rounded_number(
             precision_score(
                 filtered_true_labels,
@@ -317,7 +327,6 @@ if __name__ == "__main__":
         )
 
     save_validation_metrics(metrics, OUTPUT_DIR)
-    # Save confusion matrix plot
     save_confusion_matrix(
         filtered_true_labels, filtered_predicted_labels, labels, OUTPUT_DIR
     )
