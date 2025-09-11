@@ -69,7 +69,7 @@ def compute_confusion_matrix(result, dataset, labels):
                 # Copy "UNKNOWN" above certain threshold
                 unknown_idx = labels.index("UNKNOWN") if "UNKNOWN" in labels else None
                 if unknown_idx is not None:
-                    if round(item["output"][0][unknown_idx], 5) > 0.005:
+                    if round(item["output"][0][unknown_idx], 5) > 0.02:
                         summary["unknown"] += 1
                         print(
                             f"UNKNOWN: {round(item['output'][0][unknown_idx], 5):.8f} - {fname}"

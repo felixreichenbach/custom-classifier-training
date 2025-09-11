@@ -548,7 +548,9 @@ if __name__ == "__main__":
         # Compile model
         model.compile(
             loss=tf.keras.losses.categorical_crossentropy,
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+            optimizer=tf.keras.optimizers.legacy.Adam(
+                learning_rate=1e-3
+            ),  # tf.keras.optimizers.Adam(learning_rate=1e-3),
             metrics=metrics_names,
         )
 
@@ -575,7 +577,9 @@ if __name__ == "__main__":
         model.summary(show_trainable=True)
 
         model.compile(
-            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+            optimizer=tf.keras.optimizers.legacy.Adam(
+                learning_rate=1e-4
+            ),  # tf.keras.optimizers.Adam(learning_rate=1e-4),
             loss=tf.keras.losses.categorical_crossentropy,
             metrics=metrics_names,
         )
@@ -584,7 +588,7 @@ if __name__ == "__main__":
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=EPOCHS + 2,
+            epochs=EPOCHS + EPOCHS,
             initial_epoch=len(loss_history.epoch),
             callbacks=ft_callbacks.values(),
         )
