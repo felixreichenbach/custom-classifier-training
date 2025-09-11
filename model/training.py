@@ -490,7 +490,7 @@ def get_callbacks():
 
     callbackEarlyStopping = tf.keras.callbacks.EarlyStopping(
         # Stop training when `monitor` value is no longer improving
-        monitor="categorical_accuracy",
+        monitor="val_categorical_accuracy",
         # "no longer improving" being defined as "no better than 'min_delta' less"
         min_delta=1e-3,
         # "no longer improving" being further defined as "for at least 'patience' epochs"
@@ -500,13 +500,13 @@ def get_callbacks():
     )
     callbackReduceLROnPlateau = tf.keras.callbacks.ReduceLROnPlateau(
         # Reduce learning rate when `loss` is no longer improving
-        monitor="loss",
+        monitor="val_loss",
         # "no longer improving" being defined as "no better than 'min_delta' less"
         min_delta=1e-3,
         # "no longer improving" being further defined as "for at least 'patience' epochs"
-        patience=5,
+        patience=10,
         # Default lower bound on learning rate
-        min_lr=0,
+        min_lr=1e-6,
     )
 
     return {
@@ -592,7 +592,6 @@ if __name__ == "__main__":
 
         # Get callbacks for training classification
         callbacks = get_callbacks()
-
         # Train the model
         loss_history = model.fit(
             train_data_pipeline,
@@ -609,9 +608,9 @@ if __name__ == "__main__":
         for layer in model.layers[:-10]:
             layer.trainable = False
         # Display which layers are frozen or trainable
-        for i, layer in enumerate(model.layers):
-            print(f"Layer {i}: {layer.name} - Trainable: {layer.trainable}")
-        # model.summary(show_trainable=True)
+        # for i, layer in enumerate(model.layers):
+        #    print(f"Layer {i}: {layer.name} - Trainable: {layer.trainable}")
+        model.summary(show_trainable=True)
 
         model.compile(
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
@@ -619,12 +618,13 @@ if __name__ == "__main__":
             metrics=metrics_names,
         )
 
+        ft_callbacks = get_callbacks()
         fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
             epochs=EPOCHS + 2,
             initial_epoch=len(loss_history.epoch),
-            callbacks=callbacks.values(),
+            callbacks=ft_callbacks.values(),
         )
 
     # Create an empty dictionary to store the combined history
