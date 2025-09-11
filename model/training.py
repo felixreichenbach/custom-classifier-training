@@ -149,34 +149,6 @@ def parse_image_and_encode_labels(
     return image_decoded, labels_encoded
 
 
-def create_dataset(
-    filenames,
-    labels,
-    all_labels,
-    num_parallel_calls=tf.data.experimental.AUTOTUNE,
-):
-    # Ensure that there is at least one image in the dataset
-    if len(filenames) == 0:
-        raise ValueError("No images found in the dataset.")
-    if len(filenames) != len(labels):
-        raise ValueError(
-            "Filenames and labels must have the same length. Found "
-            f"{len(filenames)} filenames and {len(labels)} labels."
-        )
-    # Create a first dataset of file paths and labels
-
-    dataset = tf.data.Dataset.from_tensor_slices((filenames, labels))
-
-    # Apply a map to the dataset that converts filenames and text labels
-    # to normalized images and encoded labels, respectively.
-    def mapping_fnc(x, y):
-        return parse_image_and_encode_labels(x, y, all_labels)
-
-    # Parse and preprocess observations in parallel
-    dataset = dataset.map(mapping_fnc, num_parallel_calls=num_parallel_calls)
-    return dataset
-
-
 def create_dataset_classification(
     filenames: ty.List[str],
     labels: ty.List[str],
@@ -356,20 +328,6 @@ def create_data_pipeline(
         A preprocessed and batched tf.data.Dataset.
     """
 
-    # Preprocessing and normalization function
-    def preprocess_image(image, label):
-        image = tf.image.resize(image, image_size)
-        return image, label
-
-    # Augmentation function for the training set
-    def augment_image(image, label):
-        image = tf.image.random_flip_left_right(image)
-        image = tf.image.random_flip_up_down(image)
-        image = tf.image.random_contrast(image, lower=0.1, upper=0.2)
-        image = tf.image.random_brightness(image, max_delta=0.1)
-        # Note: You can add more augmentation layers here as needed.
-        return image, label
-
     preprocessing_pipeline = keras.Sequential(
         [
             keras.layers.Resizing(
@@ -496,7 +454,7 @@ def save_model_metrics_classification(
     combined_history: dict,
     model_dir: str,
     model: Model,
-    test_dataset: tf.data.Dataset,
+    data_pipeline: tf.data.Dataset,
 ) -> None:
 
     monitored_metric_key = "categorical_accuracy"
@@ -506,7 +464,7 @@ def save_model_metrics_classification(
     # Find the index of the best value
     monitored_metric_max_idx = len(monitored_val) - np.argmax(monitored_val[::-1]) - 1
 
-    test_metrics = model.evaluate(test_dataset)
+    test_metrics = model.evaluate(data_pipeline)
 
     metrics = {}
     for i, key in enumerate(model.metrics_names):
@@ -602,6 +560,12 @@ if __name__ == "__main__":
         prefetch_buffer_size=AUTOTUNE,
     )
 
+    # Create the data pipelines
+    train_data_pipeline = create_data_pipeline(
+        train_dataset, IMG_SIZE, BATCH_SIZE, is_training=True
+    )
+    val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
+
     # Build and compile model
     with strategy.scope():
 
@@ -625,14 +589,6 @@ if __name__ == "__main__":
             optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
             metrics=metrics_names,
         )
-
-        print(model.summary())
-
-        # Create the data pipelines
-        train_data_pipeline = create_data_pipeline(
-            train_dataset, IMG_SIZE, BATCH_SIZE, is_training=True
-        )
-        val_data_pipeline = create_data_pipeline(val_dataset, IMG_SIZE, BATCH_SIZE)
 
         # Get callbacks for training classification
         callbacks = get_callbacks()
@@ -677,7 +633,7 @@ if __name__ == "__main__":
         combined_history,
         MODEL_DIR,
         my_model,
-        val_dataset,
+        val_data_pipeline,
     )
 
     # Save labels.txt file
