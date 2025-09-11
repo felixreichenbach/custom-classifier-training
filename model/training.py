@@ -255,7 +255,6 @@ def create_dataset_classification(
 
 # Build the Keras model
 def build_classification_model(
-    input_shape: ty.Tuple[int, int, int],
     num_classes: int,
     activation: str,
     dropout_rate: float = 0.2,
@@ -267,7 +266,6 @@ def build_classification_model(
     separate data pipeline that handles preprocessing and augmentation.
 
     Args:
-        input_shape: A tuple representing the shape of the input images, e.g., (224, 224, 3).
         num_classes: The number of classes for the classification task. This determines the
                      number of units in the final output layer.
         activation: The activation function for the final output layer. For multi-class
@@ -307,7 +305,7 @@ def build_classification_model(
     # Create the complete model by defining the inputs and outputs.
     model = keras.Model(inputs=base_model.input, outputs=outputs)
 
-    return base_model, model
+    return model
 
 
 def create_data_pipeline(
@@ -385,11 +383,11 @@ def fine_tune_model(my_model: keras.Model) -> keras.Model:
         The recompiled Keras Model ready for the fine-tuning stage.
     """
 
-    my_model.trainable = True
-    for layer in my_model.layers[
-        :-3
-    ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30
-        layer.trainable = False
+    # my_model.trainable = True
+    # for layer in my_model.layers[
+    #    :-3
+    # ]:  # Unfreeze last 3 layers TODO: AI recommendation is to use -30
+    #    layer.trainable = False
     # Recompile the model with a very low learning rate.
     # It's crucial to recompile the model for the changes to the trainable
     # state to take effect. Using a low learning rate prevents catastrophic
@@ -583,9 +581,7 @@ if __name__ == "__main__":
         )
 
         # Build model
-        base_model, model = build_classification_model(
-            (*IMG_SIZE, 3), num_classes, activation="softmax"
-        )
+        model = build_classification_model(num_classes, activation="softmax")
 
         # Compile model
         model.compile(
@@ -601,19 +597,32 @@ if __name__ == "__main__":
         loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=1,
+            epochs=EPOCHS,
             callbacks=callbacks.values(),
         )
 
         # Fine-tuning the model
-        # Prepare the model for fine-tuning by unfreezing layers.
-        # The base model has 236 layers. Unfreezing from layer 100 is a good starting point.
-        my_model = fine_tune_model(model)  # , fine_tune_from_layer=100)
+        # Unfreeze the base model
+        model.trainable = True
 
-        fine_tune_loss_history = my_model.fit(
+        # Freeze all layers except the top `num_unfrozen_layers`
+        for layer in model.layers[:-10]:
+            layer.trainable = False
+        # Display which layers are frozen or trainable
+        for i, layer in enumerate(model.layers):
+            print(f"Layer {i}: {layer.name} - Trainable: {layer.trainable}")
+        # model.summary(show_trainable=True)
+
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+            loss=tf.keras.losses.categorical_crossentropy,
+            metrics=metrics_names,
+        )
+
+        fine_tune_loss_history = model.fit(
             train_data_pipeline,
             validation_data=val_data_pipeline,
-            epochs=EPOCHS + 5,
+            epochs=EPOCHS + 2,
             initial_epoch=len(loss_history.epoch),
             callbacks=callbacks.values(),
         )
@@ -633,7 +642,7 @@ if __name__ == "__main__":
     save_model_metrics_classification(
         combined_history,
         MODEL_DIR,
-        my_model,
+        model,
         val_data_pipeline,
     )
 
